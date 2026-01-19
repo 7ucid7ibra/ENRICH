@@ -1,0 +1,51 @@
+{
+  "name": "voice-intelligence-app",
+  "version": "1.0.0",
+  "description": "Voice Intelligence Desktop App with local AI processing",
+  "main": "electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:electron\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:electron": "wait-on http://localhost:3000 && electron .",
+    "build": "npm run build:frontend && npm run build:electron",
+    "build:frontend": "cd frontend && npm run build",
+    "build:electron": "electron-builder",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "form-data": "^4.0.0",
+    "node-record-lpcm16": "^1.0.1",
+    "node-fetch": "^2.6.9",
+    "openai": "^4.24.0",
+    "global-hotkeys": "^0.1.1"
+  },
+  "build": {
+    "appId": "com.voiceintelligence.app",
+    "productName": "Voice Intelligence",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/out/**/*",
+      "presets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
