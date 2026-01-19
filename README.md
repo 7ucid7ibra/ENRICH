@@ -120,6 +120,15 @@ ollama pull mistral
 ollama pull llama3
 ```
 
+Optional: OpenAI Key kann in den Settings der App gesetzt werden (Fallback).
+
+### LLM Provider (Settings)
+
+- **ollama** (default): lokal, offline-first
+- **opencode**: cloud models via OpenCode (grok-code, big-pickle, glm-4.7-free, minimax-m2.1-free). API key optional.
+- **openai**: requires OpenAI API key
+- **gemini**: requires Gemini API key
+
 ### 4. Projekt installieren
 
 ```bash
@@ -141,6 +150,10 @@ cd ..
 ```bash
 # Umgebungsvariablen (optional für API-Fallbacks)
 export OPENAI_API_KEY="your-key-here"
+export GEMINI_API_KEY="your-gemini-key"
+export OPENCODE_API_KEY="optional-opencode-key"
+export LLM_PROVIDER="ollama"  # ollama | opencode | openai | gemini
+export OLLAMA_URL="http://127.0.0.1:11434"
 
 # Whisper Pfad anpassen (falls nicht in Standard-Pfaden)
 export WHISPER_PATH="/pfad/zu/whisper.cpp/main"
@@ -148,6 +161,11 @@ export WHISPER_PATH="/pfad/zu/whisper.cpp/main"
 export WHISPER_MODEL="small"   # oder "medium"
 # Optional: direkter Modellpfad
 export WHISPER_MODEL_PATH="/pfad/zu/ggml-small.bin"
+# Optional: Debug/Performance
+export WHISPER_NO_GPU=1
+export WHISPER_THREADS=4
+export WHISPER_KEEP_FILES=1
+export WHISPER_EXTRA_ARGS="--print-progress"
 ```
 
 ## Build & Run
@@ -161,6 +179,31 @@ npm run dev
 # Oder separat:
 npm run dev:frontend  # Startet Next.js auf Port 3000
 npm run dev:electron  # Startet Electron nach Frontend-Ready
+```
+
+```bash
+# Falls Port 3000 belegt ist:
+export DEV_PORT=3001
+npm run dev
+```
+
+### One-Command Bootstrap
+
+```bash
+# Führt Preflight-Checks aus, installiert Node-Dependencies und startet die App
+npm run bootstrap
+```
+
+Optional (macOS): automatische Installation per Homebrew, falls Komponenten fehlen:
+```bash
+AUTO_INSTALL=1 npm run bootstrap
+```
+
+### Whisper Setup (lokal)
+
+```bash
+# Klont, baut und lädt Whisper-Modelle herunter
+npm run setup:whisper
 ```
 
 ### Production Build
@@ -217,8 +260,8 @@ npm start
 which whisper
 ls -la /usr/local/bin/whisper
 
-# Alternativ: Umgebungsvariable setzen
-export WHISPER_PATH="/pfad/zu/whisper.cpp/main"
+# Alternativ: Umgebungsvariable setzen (aktueller Build-Pfad)
+export WHISPER_PATH="/pfad/zu/whisper.cpp/build/bin/whisper-cli"
 ```
 
 ### Ollama nicht erreichbar
@@ -234,6 +277,8 @@ ollama serve
 ```bash
 # Mikrofon-Rechte prüfen (macOS)
 # Systemeinstellungen → Datenschutz → Mikrofon
+# Falls die App nicht angezeigt wird:
+# App einmal starten und Recording drücken, dann erscheint die Nachfrage.
 
 # Audio-Geräte prüfen
 arecord -l  # Linux

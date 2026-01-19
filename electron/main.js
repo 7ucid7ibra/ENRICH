@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut } = require('electron');
+const { app, BrowserWindow, globalShortcut, systemPreferences } = require('electron');
 const path = require('path');
 const isDev = !app.isPackaged;
 
@@ -25,8 +25,9 @@ function createWindow() {
   });
 
   // Load the app
+  const devPort = process.env.DEV_PORT || '3000';
   const startUrl = isDev 
-    ? 'http://localhost:3000' 
+    ? `http://localhost:${devPort}` 
     : `file://${path.join(__dirname, '../frontend/out/index.html')}`;
   
   mainWindow.loadURL(startUrl);
@@ -108,6 +109,12 @@ app.whenReady().then(() => {
   createWindow();
   ipc.setupIpcHandlers(mainWindow);
   registerGlobalHotkey();
+
+  if (process.platform === 'darwin') {
+    systemPreferences.askForMediaAccess('microphone').catch((error) => {
+      console.warn('Microphone permission request failed:', error);
+    });
+  }
   
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

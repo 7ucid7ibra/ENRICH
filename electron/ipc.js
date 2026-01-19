@@ -1,9 +1,20 @@
-const { ipcMain } = require('electron');
+const { ipcMain, systemPreferences } = require('electron');
 const audioRecorder = require('./audio');
 const stt = require('./stt');
 const llm = require('./llm');
 
 let mainWindow;
+
+function safeSend(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  try {
+    mainWindow.webContents.send(channel, payload);
+  } catch (error) {
+    console.warn(`Failed to send ${channel}:`, error.message);
+  }
+}
 
 function setupIpcHandlers(window) {
   mainWindow = window;
@@ -14,8 +25,17 @@ function setupIpcHandlers(window) {
       if (!mainWindow) {
         throw new Error('Main window not ready');
       }
+      if (process.platform === 'darwin') {
+        const status = systemPreferences.getMediaAccessStatus('microphone');
+        if (status !== 'granted') {
+          const granted = await systemPreferences.askForMediaAccess('microphone');
+          if (!granted) {
+            throw new Error('Microphone access denied. Enable it in System Settings.');
+          }
+        }
+      }
       await audioRecorder.startRecording();
-      mainWindow.webContents.send('recording-status', { isRecording: true });
+      safeSend('recording-status', { isRecording: true });
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -28,7 +48,7 @@ function setupIpcHandlers(window) {
         throw new Error('Main window not ready');
       }
       const audioBuffer = await audioRecorder.stopRecording();
-      mainWindow.webContents.send('recording-status', { isRecording: false });
+      safeSend('recording-status', { isRecording: false });
       if (audioBuffer) {
         // Process audio in background
         processAudio(audioBuffer);
@@ -44,6 +64,10 @@ function setupIpcHandlers(window) {
     try {
       const sttInitialized = await stt.initialize();
       const llmInitialized = await llm.initialize();
+      const providerModels = await llm.getProviderModels();
+      if (providerModels.length > 0 && !providerModels.includes(llm.activeModel)) {
+        llm.setActiveModel(providerModels[0]);
+      }
       const presets = llm.getAvailablePresets();
       
       return {
@@ -53,7 +77,13 @@ function setupIpcHandlers(window) {
         },
         llm: {
           available: llmInitialized,
-          ollama: llmInitialized
+          provider: llm.activeProvider,
+          models: providerModels,
+          activeModel: llm.activeModel,
+          ollamaUrl: llm.ollamaUrl,
+          openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+          geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+          opencodeConfigured: Boolean(process.env.OPENCODE_API_KEY)
         },
         presets: presets,
         activePreset: llm.activePreset
@@ -67,6 +97,72 @@ function setupIpcHandlers(window) {
   ipcMain.handle('set-active-preset', async (event, presetName) => {
     try {
       const success = llm.setActivePreset(presetName);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('enrich-text', async (event, text) => {
+    try {
+      if (!text || typeof text !== 'string') {
+        throw new Error('Text is required for enrichment');
+      }
+      const result = await llm.enrich(text);
+      return { success: true, result };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-ollama-model', async (event, modelName) => {
+    try {
+      const success = llm.setActiveModel(modelName);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-ollama-url', async (event, url) => {
+    try {
+      const success = llm.setOllamaUrl(url);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-openai-key', async (event, apiKey) => {
+    try {
+      const success = llm.setOpenAIKey(apiKey);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-gemini-key', async (event, apiKey) => {
+    try {
+      const success = llm.setGeminiKey(apiKey);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-opencode-key', async (event, apiKey) => {
+    try {
+      const success = llm.setOpenCodeKey(apiKey);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-llm-provider', async (event, providerName) => {
+    try {
+      const success = llm.setActiveProvider(providerName);
       return { success };
     } catch (error) {
       return { success: false, error: error.message };
@@ -100,20 +196,21 @@ function setupIpcHandlers(window) {
 // Process audio in background
 async function processAudio(audioBuffer) {
   try {
-    if (!mainWindow) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
       throw new Error('Main window not ready');
     }
     // Send processing status
-    mainWindow.webContents.send('processing-status', { 
+    safeSend('processing-status', { 
       stage: 'transcribing', 
       message: 'Transcribing audio...' 
     });
     
     // Transcribe audio
     const transcription = await stt.transcribe(audioBuffer);
+    safeSend('transcription-raw', { text: transcription });
     
     // Send transcription status
-    mainWindow.webContents.send('processing-status', { 
+    safeSend('processing-status', { 
       stage: 'enriching', 
       message: 'Enriching content...' 
     });
@@ -122,14 +219,14 @@ async function processAudio(audioBuffer) {
     const enriched = await llm.enrich(transcription);
     
     // Send final result
-    mainWindow.webContents.send('transcription-result', {
+    safeSend('transcription-result', {
       original: transcription,
       enriched: enriched
     });
     
   } catch (error) {
     console.error('Error processing audio:', error);
-    mainWindow.webContents.send('processing-error', { error: error.message });
+    safeSend('processing-error', { error: error.message });
   }
 }
 

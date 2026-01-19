@@ -4,26 +4,46 @@ const fetch = require('node-fetch');
 
 class LLMProcessor {
   constructor() {
-    this.ollamaUrl = 'http://localhost:11434';
-    this.defaultModel = 'mistral';
+    this.ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+    this.activeProvider = process.env.LLM_PROVIDER || 'ollama';
+    this.defaultModel = process.env.OLLAMA_MODEL || 'mistral';
+    this.activeModel = this.defaultModel;
     this.presetsDir = path.join(__dirname, '../presets');
     this.activePreset = 'quick_notes';
+    this.opencodeModels = [
+      'grok-code',
+      'big-pickle',
+      'minimax-m2.1-free',
+      'glm-4.7-free'
+    ];
   }
 
   async initialize() {
-    // Check if Ollama is running
+    if (this.activeProvider === 'ollama') {
+      return this.ensureOllamaRunning(true);
+    }
+    if (this.activeProvider === 'openai') {
+      return Boolean(process.env.OPENAI_API_KEY);
+    }
+    if (this.activeProvider === 'gemini') {
+      return Boolean(process.env.GEMINI_API_KEY);
+    }
+    if (this.activeProvider === 'opencode') {
+      return true;
+    }
+    return false;
+  }
+
+  async getOllamaModels() {
     try {
       const response = await fetch(`${this.ollamaUrl}/api/tags`);
       if (!response.ok) {
-        throw new Error('Ollama not responding');
+        return [];
       }
-      
       const data = await response.json();
-      console.log('Available Ollama models:', data.models.map(m => m.name));
-      return true;
+      return data.models.map(m => m.name);
     } catch (error) {
-      console.warn('Ollama not available:', error.message);
-      return false;
+      return [];
     }
   }
 
@@ -36,13 +56,26 @@ class LLMProcessor {
     }
 
     try {
-      // Try local Ollama first
-      if (await this.initialize()) {
+      if (this.activeProvider === 'ollama') {
+        if (!(await this.ensureOllamaRunning(true))) {
+          throw new Error('Ollama is not reachable. Start it with "ollama serve".');
+        }
         return await this.enrichWithOllama(text, presetConfig);
       }
       
-      // Fallback to OpenAI API
-      return await this.enrichWithOpenAI(text, presetConfig);
+      if (this.activeProvider === 'openai') {
+        return await this.enrichWithOpenAI(text, presetConfig);
+      }
+
+      if (this.activeProvider === 'gemini') {
+        return await this.enrichWithGemini(text, presetConfig);
+      }
+
+      if (this.activeProvider === 'opencode') {
+        return await this.enrichWithOpenCode(text, presetConfig);
+      }
+
+      throw new Error(`Unsupported provider: ${this.activeProvider}`);
     } catch (error) {
       console.error('LLM enrichment error:', error);
       throw error;
@@ -58,7 +91,7 @@ class LLMProcessor {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: this.defaultModel,
+        model: this.activeModel,
         prompt: prompt,
         stream: false,
         options: {
@@ -69,7 +102,8 @@ class LLMProcessor {
     });
 
     if (!response.ok) {
-      throw new Error(`Ollama request failed: ${response.statusText}`);
+      const body = await response.text();
+      throw new Error(`Ollama request failed: ${response.status} ${response.statusText} ${body}`.trim());
     }
 
     const result = await response.json();
@@ -92,7 +126,7 @@ class LLMProcessor {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
+        model: this.activeModel || 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -114,6 +148,134 @@ class LLMProcessor {
     const result = await response.json();
     const enrichedText = result.choices[0].message.content;
     
+    return this.parseEnrichedOutput(enrichedText, presetConfig);
+  }
+
+  async enrichWithOpenCode(text, presetConfig) {
+    const prompt = presetConfig.prompt.replace('{text}', text);
+    const messages = [
+      {
+        role: 'system',
+        content: presetConfig.system_prompt || 'You are a helpful assistant.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ];
+
+    const model = this.activeModel || 'grok-code';
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (process.env.OPENCODE_API_KEY) {
+      headers.Authorization = `Bearer ${process.env.OPENCODE_API_KEY}`;
+    }
+
+    const anthropicModels = new Set([
+      'minimax-m2.1-free',
+      'claude-sonnet-4',
+      'claude-3-5-haiku',
+      'claude-haiku-4-5'
+    ]);
+
+    let url;
+    let payload;
+    if (anthropicModels.has(model)) {
+      url = 'https://opencode.ai/zen/v1/messages';
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content);
+      const conv = messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({
+          role: m.role,
+          content: [{ type: 'text', text: m.content }]
+        }));
+      payload = {
+        model,
+        messages: conv,
+        max_tokens: 512
+      };
+      if (systemMessages.length > 0) {
+        payload.system = systemMessages.join('\n\n');
+      }
+    } else {
+      url = 'https://opencode.ai/zen/v1/chat/completions';
+      payload = {
+        model,
+        messages
+      };
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenCode request failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    let enrichedText = '';
+    if (anthropicModels.has(model)) {
+      const parts = result.content || [];
+      enrichedText = parts.map(part => part.text || '').join('');
+    } else {
+      enrichedText = result.choices?.[0]?.message?.content || '';
+    }
+    return this.parseEnrichedOutput(enrichedText, presetConfig);
+  }
+
+  async enrichWithGemini(text, presetConfig) {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('Gemini API key not configured');
+    }
+
+    const prompt = presetConfig.prompt.replace('{text}', text);
+    const messages = [
+      {
+        role: 'system',
+        content: presetConfig.system_prompt || 'You are a helpful assistant.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ];
+
+    const model = this.activeModel || 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    const contents = messages
+      .filter(msg => msg.role !== 'system')
+      .map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }]
+      }));
+    const payload = { contents };
+    const systemPrompt = messages.find(msg => msg.role === 'system')?.content;
+    if (systemPrompt) {
+      payload.system_instruction = { parts: [{ text: systemPrompt }] };
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Gemini request failed: ${response.status} ${response.statusText} ${body}`.trim());
+    }
+
+    const result = await response.json();
+    const enrichedText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!enrichedText) {
+      throw new Error('Gemini request succeeded but returned empty content');
+    }
     return this.parseEnrichedOutput(enrichedText, presetConfig);
   }
 
@@ -243,6 +405,107 @@ class LLMProcessor {
       return true;
     }
     return false;
+  }
+
+  setActiveModel(modelName) {
+    if (modelName && typeof modelName === 'string') {
+      this.activeModel = modelName;
+      return true;
+    }
+    return false;
+  }
+
+  setActiveProvider(providerName) {
+    const allowed = new Set(['ollama', 'openai', 'gemini', 'opencode']);
+    if (allowed.has(providerName)) {
+      this.activeProvider = providerName;
+      if (providerName === 'ollama') {
+        this.activeModel = process.env.OLLAMA_MODEL || 'mistral';
+      } else if (providerName === 'openai') {
+        this.activeModel = 'gpt-4o-mini';
+      } else if (providerName === 'gemini') {
+        this.activeModel = 'gemini-2.5-flash';
+      } else if (providerName === 'opencode') {
+        this.activeModel = 'grok-code';
+      }
+      return true;
+    }
+    return false;
+  }
+
+  setOpenAIKey(apiKey) {
+    if (apiKey && typeof apiKey === 'string') {
+      process.env.OPENAI_API_KEY = apiKey;
+      return true;
+    }
+    return false;
+  }
+
+  setGeminiKey(apiKey) {
+    if (apiKey && typeof apiKey === 'string') {
+      process.env.GEMINI_API_KEY = apiKey;
+      return true;
+    }
+    return false;
+  }
+
+  setOpenCodeKey(apiKey) {
+    if (apiKey && typeof apiKey === 'string') {
+      process.env.OPENCODE_API_KEY = apiKey;
+      return true;
+    }
+    return false;
+  }
+
+  setOllamaUrl(url) {
+    if (url && typeof url === 'string') {
+      this.ollamaUrl = url.replace(/\/$/, '');
+      return true;
+    }
+    return false;
+  }
+
+  async ensureOllamaRunning(forceStart = false) {
+    try {
+      const response = await fetch(`${this.ollamaUrl}/api/tags`);
+      if (response.ok) {
+        return true;
+      }
+    } catch (error) {
+      // ignore
+    }
+
+    if (forceStart) {
+      try {
+        const { spawn } = require('child_process');
+        spawn('ollama', ['serve'], { stdio: 'ignore', detached: true });
+      } catch (error) {
+        // ignore
+      }
+    }
+
+    try {
+      const response = await fetch(`${this.ollamaUrl}/api/tags`);
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async getProviderModels() {
+    if (this.activeProvider === 'ollama') {
+      return this.getOllamaModels();
+    }
+    if (this.activeProvider === 'opencode') {
+      return this.opencodeModels;
+    }
+    if (this.activeProvider === 'openai') {
+      return ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo'];
+    }
+    if (this.activeProvider === 'gemini') {
+      return ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash'];
+    }
+    return [];
   }
 
   getAvailablePresets() {

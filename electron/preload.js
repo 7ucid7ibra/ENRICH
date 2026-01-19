@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTranscriptionResult: (callback) => {
     ipcRenderer.on('transcription-result', (event, data) => callback(data));
   },
+
+  // Raw transcription
+  onTranscriptionRaw: (callback) => {
+    ipcRenderer.on('transcription-raw', (event, data) => callback(data));
+  },
   
   // Error handling
   onProcessingError: (callback) => {
@@ -29,5 +34,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
   
   // Set active preset
-  setActivePreset: (preset) => ipcRenderer.invoke('set-active-preset', preset)
+  setActivePreset: (preset) => ipcRenderer.invoke('set-active-preset', preset),
+  setOllamaModel: (model) => ipcRenderer.invoke('set-ollama-model', model),
+  setOllamaUrl: (url) => ipcRenderer.invoke('set-ollama-url', url),
+  setOpenAIKey: (apiKey) => ipcRenderer.invoke('set-openai-key', apiKey),
+  setGeminiKey: (apiKey) => ipcRenderer.invoke('set-gemini-key', apiKey),
+  setOpenCodeKey: (apiKey) => ipcRenderer.invoke('set-opencode-key', apiKey),
+  setLLMProvider: (provider) => ipcRenderer.invoke('set-llm-provider', provider),
+  enrichText: (text) => ipcRenderer.invoke('enrich-text', text)
 });
