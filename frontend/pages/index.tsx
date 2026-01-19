@@ -21,7 +21,20 @@ const Home: NextPage = () => {
   const [showSettings, setShowSettings] = useState(false)
   const [availableModels, setAvailableModels] = useState<any>(null)
   const [activePreset, setActivePreset] = useState<string | null>(null)
+  const [activeOllamaModel, setActiveOllamaModel] = useState<string | null>(null)
+  const [openAIKey, setOpenAIKey] = useState('')
+  const [geminiKey, setGeminiKey] = useState('')
+  const [opencodeKey, setOpencodeKey] = useState('')
+  const [openAISaved, setOpenAISaved] = useState(false)
+  const [geminiSaved, setGeminiSaved] = useState(false)
+  const [opencodeSaved, setOpencodeSaved] = useState(false)
+  const [rawTranscription, setRawTranscription] = useState<string>('')
+  const [manualEnriching, setManualEnriching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [llmProvider, setLlmProvider] = useState<string>('ollama')
+  const [providerModels, setProviderModels] = useState<string[]>([])
+  const [ollamaUrl, setOllamaUrl] = useState('')
+  const [ollamaUrlSaved, setOllamaUrlSaved] = useState(false)
 
   useEffect(() => {
     // Check if we're in Electron environment
@@ -43,6 +56,10 @@ const Home: NextPage = () => {
         setError(null)
       })
 
+      window.electronAPI.onTranscriptionRaw((data: { text: string }) => {
+        setRawTranscription(data.text || '')
+      })
+
       window.electronAPI.onProcessingError((errorData: { error: string }) => {
         setError(errorData.error)
         setIsProcessing(false)
@@ -60,6 +77,10 @@ const Home: NextPage = () => {
         const models = await window.electronAPI.getAvailableModels()
         setAvailableModels(models)
         setActivePreset(models?.activePreset || null)
+        setActiveOllamaModel(models?.llm?.activeModel || null)
+        setLlmProvider(models?.llm?.provider || 'ollama')
+        setProviderModels(models?.llm?.models || [])
+        setOllamaUrl(models?.llm?.ollamaUrl || '')
       }
     } catch (error) {
       console.error('Failed to load models:', error)
@@ -103,6 +124,99 @@ const Home: NextPage = () => {
     }
   }
 
+  const changeOllamaModel = async (model: string) => {
+    try {
+      const result = await window.electronAPI?.setOllamaModel(model)
+      if (result?.success) {
+        setActiveOllamaModel(model)
+      } else {
+        setError(result?.error || 'Failed to change model')
+      }
+    } catch (error) {
+      setError('Failed to change model')
+      console.error(error)
+    }
+  }
+
+  const saveOpenAIKey = async () => {
+    try {
+      const result = await window.electronAPI?.setOpenAIKey(openAIKey.trim())
+      if (result?.success) {
+        setOpenAISaved(true)
+        setTimeout(() => setOpenAISaved(false), 2000)
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to save OpenAI key')
+      }
+    } catch (error) {
+      setError('Failed to save OpenAI key')
+      console.error(error)
+    }
+  }
+
+  const saveGeminiKey = async () => {
+    try {
+      const result = await window.electronAPI?.setGeminiKey(geminiKey.trim())
+      if (result?.success) {
+        setGeminiSaved(true)
+        setTimeout(() => setGeminiSaved(false), 2000)
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to save Gemini key')
+      }
+    } catch (error) {
+      setError('Failed to save Gemini key')
+      console.error(error)
+    }
+  }
+
+  const saveOpenCodeKey = async () => {
+    try {
+      const result = await window.electronAPI?.setOpenCodeKey(opencodeKey.trim())
+      if (result?.success) {
+        setOpencodeSaved(true)
+        setTimeout(() => setOpencodeSaved(false), 2000)
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to save OpenCode key')
+      }
+    } catch (error) {
+      setError('Failed to save OpenCode key')
+      console.error(error)
+    }
+  }
+
+  const changeProvider = async (provider: string) => {
+    try {
+      const result = await window.electronAPI?.setLLMProvider(provider)
+      if (result?.success) {
+        setLlmProvider(provider)
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to change provider')
+      }
+    } catch (error) {
+      setError('Failed to change provider')
+      console.error(error)
+    }
+  }
+
+  const saveOllamaUrl = async () => {
+    try {
+      const result = await window.electronAPI?.setOllamaUrl(ollamaUrl.trim())
+      if (result?.success) {
+        setOllamaUrlSaved(true)
+        setTimeout(() => setOllamaUrlSaved(false), 2000)
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to save Ollama URL')
+      }
+    } catch (error) {
+      setError('Failed to save Ollama URL')
+      console.error(error)
+    }
+  }
+
   const formatResult = (result: TranscriptionResult) => {
     const sections = []
     
@@ -127,6 +241,41 @@ const Home: NextPage = () => {
     }
     
     return sections.join('\n\n')
+  }
+
+  const enrichFromText = async () => {
+    if (!rawTranscription.trim()) {
+      setError('No transcription text to enrich')
+      return
+    }
+    try {
+      setManualEnriching(true)
+      const response = await window.electronAPI?.enrichText(rawTranscription)
+      if (response?.success && response.result) {
+        setLastResult({ original: rawTranscription, enriched: response.result })
+        setError(null)
+      } else {
+        setError(response?.error || 'Failed to enrich text')
+      }
+    } catch (error) {
+      setError('Failed to enrich text')
+      console.error(error)
+    } finally {
+      setManualEnriching(false)
+    }
+  }
+
+  const llmHelpText = () => {
+    if (llmProvider === 'ollama' && !availableModels?.llm?.available) {
+      return 'Ollama not running. Start with: ollama serve'
+    }
+    if (llmProvider === 'openai' && !availableModels?.llm?.openaiConfigured) {
+      return 'OpenAI key missing. Add it in Settings.'
+    }
+    if (llmProvider === 'gemini' && !availableModels?.llm?.geminiConfigured) {
+      return 'Gemini key missing. Add it in Settings.'
+    }
+    return ''
   }
 
   return (
@@ -239,6 +388,39 @@ const Home: NextPage = () => {
           </div>
         )}
 
+        {/* Raw Transcription */}
+        <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Transcription</h2>
+            <button
+              onClick={() => copyToClipboard(rawTranscription)}
+              className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              disabled={!rawTranscription}
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <textarea
+            value={rawTranscription}
+            onChange={(event) => setRawTranscription(event.target.value)}
+            placeholder="Transcription will appear here..."
+            className="w-full min-h-[160px] border border-gray-200 rounded-lg p-3 text-sm text-gray-700"
+          />
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={enrichFromText}
+              disabled={manualEnriching || !rawTranscription.trim()}
+              className="px-3 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {manualEnriching ? 'Enriching...' : 'Enrich With LLM'}
+            </button>
+            {llmHelpText() && (
+              <p className="text-xs text-gray-500">{llmHelpText()}</p>
+            )}
+          </div>
+        </div>
+
         {/* Settings Panel */}
         {showSettings && (
           <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
@@ -251,8 +433,33 @@ const Home: NextPage = () => {
                   <div className="text-sm text-gray-600">
                     <p>Speech-to-Text: {availableModels.stt?.available ? 'Available' : 'Not Available'}</p>
                     <p>LLM: {availableModels.llm?.available ? 'Available' : 'Not Available'}</p>
+                    <p>Provider: {llmProvider}</p>
                     <p>Active Preset: {activePreset || availableModels.activePreset}</p>
+                    <p>Model: {activeOllamaModel || availableModels.llm?.activeModel || 'Not set'}</p>
+                    <p>OpenAI Key: {availableModels.llm?.openaiConfigured ? 'Configured' : 'Not configured'}</p>
+                    <p>Gemini Key: {availableModels.llm?.geminiConfigured ? 'Configured' : 'Not configured'}</p>
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={loadAvailableModels}
+                    className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    Refresh Status
+                  </button>
+                </div>
+                <div>
+                  <h3 className="font-medium text-gray-700 mb-2">Provider</h3>
+                  <select
+                    value={llmProvider}
+                    onChange={(event) => changeProvider(event.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="ollama">ollama</option>
+                    <option value="opencode">opencode</option>
+                    <option value="openai">openai</option>
+                    <option value="gemini">gemini</option>
+                  </select>
                 </div>
                 {availableModels.presets?.length > 0 && (
                   <div>
@@ -268,6 +475,107 @@ const Home: NextPage = () => {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+                {providerModels.length > 0 && (
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">Model</h3>
+                    <select
+                      value={activeOllamaModel || availableModels.llm.activeModel}
+                      onChange={(event) => changeOllamaModel(event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    >
+                      {providerModels.map((model: string) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {llmProvider === 'openai' && (
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">OpenAI API Key</h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={openAIKey}
+                        onChange={(event) => setOpenAIKey(event.target.value)}
+                        placeholder="sk-..."
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={saveOpenAIKey}
+                        className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                      >
+                        {openAISaved ? 'Saved' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {llmProvider === 'gemini' && (
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">Gemini API Key</h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={geminiKey}
+                        onChange={(event) => setGeminiKey(event.target.value)}
+                        placeholder="AIza..."
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={saveGeminiKey}
+                        className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                      >
+                        {geminiSaved ? 'Saved' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {llmProvider === 'opencode' && (
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">OpenCode API Key (optional)</h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={opencodeKey}
+                        onChange={(event) => setOpencodeKey(event.target.value)}
+                        placeholder="optional"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={saveOpenCodeKey}
+                        className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                      >
+                        {opencodeSaved ? 'Saved' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {llmProvider === 'ollama' && !availableModels.llm?.available && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Ollama not running. Start with: <span className="font-mono">ollama serve</span>
+                  </p>
+                )}
+                {llmProvider === 'ollama' && (
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">Ollama URL</h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={ollamaUrl}
+                        onChange={(event) => setOllamaUrl(event.target.value)}
+                        placeholder="http://127.0.0.1:11434"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={saveOllamaUrl}
+                        className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                      >
+                        {ollamaUrlSaved ? 'Saved' : 'Save'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -23,7 +23,9 @@ class SpeechToText {
       '/opt/homebrew/bin/whisper',
       path.join(process.env.HOME || '', '.local/bin/whisper'),
       './whisper.cpp/main',
-      './whisper.cpp/whisper'
+      './whisper.cpp/whisper',
+      './whisper.cpp/build/bin/whisper-cli',
+      './whisper.cpp/build/bin/main'
     ];
 
     if (envWhisperPath && fs.existsSync(envWhisperPath)) {
@@ -83,7 +85,8 @@ class SpeechToText {
       const audioFile = path.join(this.tempDir, `recording_${Date.now()}.wav`);
       const outputBase = audioFile.replace(/\.wav$/, '');
       const outputTextFile = `${outputBase}.txt`;
-      fs.writeFileSync(audioFile, audioBuffer);
+      const normalizedBuffer = this.ensureWavHeader(audioBuffer);
+      fs.writeFileSync(audioFile, normalizedBuffer);
 
       // Prepare whisper command
       const args = [
@@ -94,13 +97,30 @@ class SpeechToText {
         '-otxt',             // Output text only
         '--no-timestamps'    // Don't include timestamps
       ];
+      if (process.env.WHISPER_NO_GPU === '1') {
+        args.push('--no-gpu');
+      }
+      if (process.env.WHISPER_THREADS) {
+        args.push('-t', process.env.WHISPER_THREADS);
+      }
+      if (process.env.WHISPER_EXTRA_ARGS) {
+        const extraArgs = process.env.WHISPER_EXTRA_ARGS.split(' ').filter(Boolean);
+        args.push(...extraArgs);
+      }
 
-      console.log('Running Whisper transcription...');
+      console.log('Running Whisper transcription:', this.whisperPath, args.join(' '));
+      console.log(`Audio size: ${normalizedBuffer.length} bytes`);
       
+      const timeoutMs = Number(process.env.WHISPER_TIMEOUT_MS || 120000);
       return new Promise((resolve, reject) => {
         const whisper = spawn(this.whisperPath, args);
         let output = '';
         let errorOutput = '';
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          whisper.kill('SIGKILL');
+        }, timeoutMs);
 
         whisper.stdout.on('data', (data) => {
           output += data.toString();
@@ -111,11 +131,20 @@ class SpeechToText {
         });
 
         whisper.on('close', (code) => {
+          clearTimeout(timer);
           // Clean up temporary file
-          try {
-            fs.unlinkSync(audioFile);
-          } catch (error) {
-            console.warn('Failed to clean up temp file:', error);
+          if (process.env.WHISPER_KEEP_FILES !== '1') {
+            try {
+              fs.unlinkSync(audioFile);
+            } catch (error) {
+              console.warn('Failed to clean up temp file:', error);
+            }
+          }
+
+          if (timedOut) {
+            const hint = errorOutput ? ` ${errorOutput.trim()}` : '';
+            reject(new Error(`Whisper timed out. Check audio input or model setup.${hint}`));
+            return;
           }
 
           if (code === 0) {
@@ -127,6 +156,9 @@ class SpeechToText {
             } catch (readError) {
               console.warn('Failed to read transcription file:', readError);
             }
+            if (!transcription) {
+              console.warn('Whisper returned empty transcription');
+            }
             console.log('Transcription completed:', transcription);
             resolve(transcription);
           } else {
@@ -134,27 +166,32 @@ class SpeechToText {
             reject(new Error(`Whisper transcription failed: ${errorOutput}`));
           }
 
-          try {
-            if (fs.existsSync(outputTextFile)) {
-              fs.unlinkSync(outputTextFile);
+          if (process.env.WHISPER_KEEP_FILES !== '1') {
+            try {
+              if (fs.existsSync(outputTextFile)) {
+                fs.unlinkSync(outputTextFile);
+              }
+            } catch (cleanupError) {
+              console.warn('Failed to clean up output file:', cleanupError);
             }
-          } catch (cleanupError) {
-            console.warn('Failed to clean up output file:', cleanupError);
           }
         });
 
         whisper.on('error', (error) => {
-          try {
-            fs.unlinkSync(audioFile);
-          } catch (cleanupError) {
-            console.warn('Failed to clean up temp file:', cleanupError);
-          }
-          try {
-            if (fs.existsSync(outputTextFile)) {
-              fs.unlinkSync(outputTextFile);
+          clearTimeout(timer);
+          if (process.env.WHISPER_KEEP_FILES !== '1') {
+            try {
+              fs.unlinkSync(audioFile);
+            } catch (cleanupError) {
+              console.warn('Failed to clean up temp file:', cleanupError);
             }
-          } catch (cleanupError) {
-            console.warn('Failed to clean up output file:', cleanupError);
+            try {
+              if (fs.existsSync(outputTextFile)) {
+                fs.unlinkSync(outputTextFile);
+              }
+            } catch (cleanupError) {
+              console.warn('Failed to clean up output file:', cleanupError);
+            }
           }
           reject(new Error(`Failed to run Whisper: ${error.message}`));
         });
@@ -164,6 +201,58 @@ class SpeechToText {
       console.error('Transcription error:', error);
       throw error;
     }
+  }
+
+  ensureWavHeader(buffer) {
+    const sampleRate = 16000;
+    const channels = 1;
+    const bitDepth = 16;
+    const blockAlign = (channels * bitDepth) / 8;
+    const byteRate = sampleRate * blockAlign;
+
+    const buildHeader = (dataSize) => {
+      const header = Buffer.alloc(44);
+      header.write('RIFF', 0);
+      header.writeUInt32LE(36 + dataSize, 4);
+      header.write('WAVE', 8);
+      header.write('fmt ', 12);
+      header.writeUInt32LE(16, 16);
+      header.writeUInt16LE(1, 20);
+      header.writeUInt16LE(channels, 22);
+      header.writeUInt32LE(sampleRate, 24);
+      header.writeUInt32LE(byteRate, 28);
+      header.writeUInt16LE(blockAlign, 32);
+      header.writeUInt16LE(bitDepth, 34);
+      header.write('data', 36);
+      header.writeUInt32LE(dataSize, 40);
+      return header;
+    };
+
+    if (buffer.length >= 12) {
+      const riff = buffer.toString('ascii', 0, 4);
+      const wave = buffer.toString('ascii', 8, 12);
+      if (riff === 'RIFF' && wave === 'WAVE') {
+        const dataChunkIndex = buffer.indexOf('data');
+        if (dataChunkIndex !== -1 && dataChunkIndex + 8 <= buffer.length) {
+          const dataSize = buffer.readUInt32LE(dataChunkIndex + 4);
+          const dataStart = dataChunkIndex + 8;
+          const available = buffer.length - dataStart;
+          const sizeLooksInvalid = dataSize === 0 || dataSize === 0xffffffff || dataSize > available;
+          if (!sizeLooksInvalid) {
+            return buffer;
+          }
+          const pcmData = buffer.slice(dataStart);
+          const header = buildHeader(pcmData.length);
+          return Buffer.concat([header, pcmData]);
+        }
+        const fallbackPcm = buffer.slice(44);
+        const header = buildHeader(fallbackPcm.length);
+        return Buffer.concat([header, fallbackPcm]);
+      }
+    }
+
+    const header = buildHeader(buffer.length);
+    return Buffer.concat([header, buffer]);
   }
 
   // Fallback method using OpenAI Whisper API if local fails
