@@ -152,7 +152,7 @@ cd ..
 export OPENAI_API_KEY="your-key-here"
 export GEMINI_API_KEY="your-gemini-key"
 export OPENCODE_API_KEY="optional-opencode-key"
-export LLM_PROVIDER="ollama"  # ollama | opencode | openai | gemini
+export LLM_PROVIDER="opencode"  # opencode | ollama | openai | gemini
 export OLLAMA_URL="http://127.0.0.1:11434"
 
 # Whisper Pfad anpassen (falls nicht in Standard-Pfaden)
