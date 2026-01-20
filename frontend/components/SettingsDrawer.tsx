@@ -6,10 +6,11 @@ import { clsx } from 'clsx'
 interface SettingsDrawerProps {
     isOpen: boolean
     onClose: () => void
+    title: string
     children: React.ReactNode
 }
 
-export default function SettingsDrawer({ isOpen, onClose, children }: SettingsDrawerProps) {
+export default function SettingsDrawer({ isOpen, onClose, title, children }: SettingsDrawerProps) {
     return (
         <AnimatePresence>
             {isOpen && (
@@ -34,7 +35,7 @@ export default function SettingsDrawer({ isOpen, onClose, children }: SettingsDr
                         <div className="flex justify-between items-center mb-8">
                             <div className="flex items-center gap-2 text-everlast-text-main">
                                 <SettingsIcon className="w-5 h-5 text-everlast-secondary" />
-                                <h2 className="text-lg font-bold tracking-wide">EINSTELLUNGEN</h2>
+                                <h2 className="text-lg font-bold tracking-wide uppercase">{title}</h2>
                             </div>
                             <button
                                 onClick={onClose}
