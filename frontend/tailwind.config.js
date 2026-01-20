@@ -10,7 +10,7 @@ module.exports = {
         everlast: {
           bg: '#050505',
           surface: '#0A0A0A',
-          primary: '#8b5cf6', // Violet
+          primary: '#cbd5e1', // Silver
           secondary: '#fbbf24', // Gold
           text: {
             main: '#f3f4f6',
@@ -20,7 +20,7 @@ module.exports = {
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'everlast-gradient': 'linear-gradient(to right, #8b5cf6, #fbbf24)',
+        'everlast-gradient': 'linear-gradient(to right, #cbd5e1, #fbbf24)',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',

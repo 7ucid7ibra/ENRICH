@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Copy, Check, ChevronRight } from 'lucide-react'
+import { Settings, Copy, Check, ChevronRight, Info, X, Loader2 } from 'lucide-react'
 import type { NextPage } from 'next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
@@ -50,7 +50,15 @@ const translations = {
     startRecord: 'Starten',
     stopRecord: 'Aufnahme läuft',
     transcribing: 'Transkribiere Audio...',
-    enriching_progress: 'Mit KI anreichern...'
+    enriching_progress: 'Mit KI anreichern...',
+    info: 'Information',
+    shortcuts: 'Shortcuts',
+    close: 'Schließen',
+    howToUse: 'Anleitung',
+    step1: 'Klicken Sie auf den Mikrofon-Button, um die Aufnahme zu starten.',
+    step2: 'Sprechen Sie deutlich. Die Transkription erscheint nach Ende der Aufnahme.',
+    step3: 'Klicken Sie auf "Anreichern", um Zusammenfassungen und Action Items zu erstellen.',
+    shortcutRecord: 'Aufnahme starten/stoppen'
   },
   en: {
     record: 'Record',
@@ -65,7 +73,6 @@ const translations = {
     actionItems: 'ACTION ITEMS',
     copyAll: 'Copy All',
     copied: 'Copied',
-    settings: 'Settings',
     provider: 'AI Model Provider',
     model: 'Model',
     apiKey: 'API Key',
@@ -78,7 +85,17 @@ const translations = {
     startRecord: 'Start',
     stopRecord: 'Recording',
     transcribing: 'Transcribing audio...',
-    enriching_progress: 'Enriching with AI...'
+    enriching_progress: 'Enriching with AI...',
+    transcription: 'Transcription',
+    settings: 'Settings',
+    info: 'Information',
+    shortcuts: 'Shortcuts',
+    close: 'Close',
+    howToUse: 'Guide',
+    step1: 'Click the microphone button to start recording.',
+    step2: 'Speak clearly. The transcription appears after you stop recording.',
+    step3: 'Click "Enrich with AI" to generate summaries and action items.',
+    shortcutRecord: 'Start/Stop Recording'
   }
 }
 
@@ -93,6 +110,7 @@ const Home: NextPage = () => {
   const [lastResult, setLastResult] = useState<TranscriptionResult | null>(null)
   const [rawTranscription, setRawTranscription] = useState<string>('')
   const [showSettings, setShowSettings] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -267,6 +285,12 @@ const Home: NextPage = () => {
             {language}
           </button>
           <button
+            onClick={() => setShowInfo(true)}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
+          >
+            <Info className="w-5 h-5" />
+          </button>
+          <button
             onClick={() => setShowSettings(!showSettings)}
             className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
           >
@@ -393,7 +417,11 @@ const Home: NextPage = () => {
                     )}
                   >
                     <span>{isProcessing ? t.processing : t.enriching}</span>
-                    {!isProcessing && <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />}
+                    {isProcessing ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -409,7 +437,7 @@ const Home: NextPage = () => {
 
       </div>
 
-      <SettingsDrawer isOpen={showSettings} onClose={() => setShowSettings(false)}>
+      <SettingsDrawer isOpen={showSettings} onClose={() => setShowSettings(false)} title={t.settings}>
         <div className="space-y-8">
           <div className="flex justify-between items-center border-b border-white/10 pb-4">
             <h3 className="text-lg font-bold text-gray-200">{t.settings}</h3>
@@ -488,20 +516,28 @@ const Home: NextPage = () => {
                 </div>
               )}
 
-              {/* Preset Selection */}
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-gray-500 uppercase">{t.preset}</label>
-                <select
-                  value={activePreset || ''}
-                  onChange={(e) => {
-                    const newVal = e.target.value
-                    setActivePreset(newVal) // Optimistic update
-                    window.electronAPI?.setActivePreset(newVal)
-                  }}
-                  className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200 outline-none focus:border-[#FDFD96]"
-                >
-                  {availableModels.presets?.map((p: string) => <option key={p} value={p}>{p}</option>)}
-                </select>
+              {/* Preset Selection with enhanced design */}
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-4 bg-everlast-secondary rounded-full" />
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">{t.preset}</label>
+                </div>
+                <div className="relative group">
+                  <select
+                    value={activePreset || ''}
+                    onChange={(e) => {
+                      const newVal = e.target.value
+                      setActivePreset(newVal) // Optimistic update
+                      window.electronAPI?.setActivePreset(newVal)
+                    }}
+                    className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-gray-200 outline-none transition-all hover:border-everlast-secondary/50 focus:border-everlast-secondary focus:ring-1 focus:ring-everlast-secondary/20 appearance-none"
+                  >
+                    {availableModels.presets?.map((p: string) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
+                    <ChevronRight className="w-4 h-4 rotate-90" />
+                  </div>
+                </div>
               </div>
 
               <div className="pt-4 border-t border-white/10 text-xs text-gray-600">
@@ -511,6 +547,68 @@ const Home: NextPage = () => {
           )}
         </div>
       </SettingsDrawer>
+      {/* Info Modal */}
+      <AnimatePresence>
+        {showInfo && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowInfo(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 1 }}
+              className="relative w-full max-w-lg bg-everlast-surface border border-white/10 rounded-2xl p-8 shadow-2xl z-[101]"
+            >
+              <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-everlast-secondary/10 rounded-lg">
+                    <Info className="w-6 h-6 text-everlast-secondary" />
+                  </div>
+                  <h2 className="text-2xl font-bold tracking-tight text-white">{t.info}</h2>
+                </div>
+                <button onClick={() => setShowInfo(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.howToUse}</h3>
+                  <ul className="space-y-3">
+                    {[t.step1, t.step2, t.step3].map((step, i) => (
+                      <li key={i} className="flex gap-4 items-start text-gray-300">
+                        <span className="flex-shrink-0 w-6 h-6 bg-white/5 border border-white/10 rounded-md flex items-center justify-center text-xs font-bold text-everlast-secondary">{i + 1}</span>
+                        <p className="text-sm leading-relaxed">{step}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-white/5">
+                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.shortcuts}</h3>
+                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl border border-white/5">
+                    <span className="text-sm text-gray-300">{t.shortcutRecord}</span>
+                    <kbd className="px-3 py-1 bg-black rounded-md border border-white/20 text-xs font-mono text-everlast-secondary shadow-sm tracking-tighter">⌘ + Shift + Space</kbd>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowInfo(false)}
+                className="w-full mt-10 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium transition-all text-white"
+              >
+                {t.close}
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </Layout>
   )
 }
