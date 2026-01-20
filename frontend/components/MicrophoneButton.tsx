@@ -24,36 +24,50 @@ export default function MicrophoneButton({ isRecording, onClick, disabled, label
                 whileHover={{ scale: disabled ? 1 : 1.05 }}
                 whileTap={{ scale: disabled ? 1 : 0.95 }}
                 className={clsx(
-                    "w-24 h-24 rounded-full flex items-center justify-center relative z-10 transition-all duration-300",
-                    disabled ? "opacity-50 cursor-not-allowed grayscale" : "cursor-pointer",
-                    isRecording ? "bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.6)]" : "bg-everlast-surface border border-white/10 hover:border-everlast-primary/50 shadow-xl"
+                    "w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all duration-500 shadow-2xl overflow-hidden",
+                    disabled ? "opacity-30 cursor-not-allowed grayscale" : "cursor-pointer",
+                    isRecording
+                        ? "bg-red-500 shadow-[0_0_50px_rgba(239,68,68,0.4)]"
+                        : "bg-black border border-white/5 hover:border-everlast-gold/50"
                 )}
             >
-                {/* Pulse Effect when Recording */}
+                {/* Background Shimmer/Glow */}
+                <div className={clsx(
+                    "absolute inset-0 transition-opacity duration-500",
+                    isRecording ? "opacity-100" : "opacity-0 group-hover:opacity-20 bg-everlast-gold"
+                )} />
+
+                {/* Metallic Gold Ring (Not recording) */}
+                {!isRecording && (
+                    <div className="absolute inset-[2px] rounded-full bg-everlast-bg z-0" />
+                )}
+
+                {/* Pulse/Breathe Effect when Recording */}
                 {isRecording && (
                     <motion.div
-                        initial={{ scale: 1, opacity: 0.5 }}
-                        animate={{ scale: 1.5, opacity: 0 }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                        className="absolute inset-0 rounded-full bg-red-500"
+                        animate={{
+                            scale: [1, 1.2, 1],
+                            opacity: [0.3, 0.1, 0.3]
+                        }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                        className="absolute inset-0 rounded-full bg-red-400"
                     />
                 )}
 
                 {/* Icon */}
-                <div className={clsx("relative z-20 transition-colors", isRecording ? "text-white" : "text-everlast-secondary")}>
-                    {isRecording ? (
-                        <MicOff className="w-10 h-10" />
-                    ) : (
-                        <Mic className="w-10 h-10" />
-                    )}
+                <div className={clsx(
+                    "relative z-20 transition-all duration-500",
+                    isRecording ? "text-white scale-110" : "text-everlast-gold group-hover:scale-110"
+                )}>
+                    {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
                 </div>
             </motion.button>
 
             {/* Label */}
-            <div className="mt-6 text-center">
+            <div className="mt-4 text-center">
                 <span className={clsx(
-                    "text-xs font-medium tracking-widest uppercase transition-colors duration-300",
-                    isRecording ? "text-red-500 animate-pulse" : "text-gray-500"
+                    "text-[10px] font-bold tracking-[0.2em] uppercase transition-all duration-500",
+                    isRecording ? "text-red-500 animate-pulse" : "text-gray-600 group-hover:text-gray-400"
                 )}>
                     {label}
                 </span>

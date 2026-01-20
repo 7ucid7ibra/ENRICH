@@ -39,7 +39,7 @@ const translations = {
     recording: 'Aufnahme läuft',
     start: 'Starten',
     processing: 'Verarbeite...',
-    enriching: 'Anreichern mit KI',
+    enriching: 'Anreichern',
     summary: 'ZUSAMMENFASSUNG',
     keyPoints: 'KERNTHEMEN',
     actionItems: 'ACTION ITEMS',
@@ -83,7 +83,7 @@ const translations = {
     recording: 'Recording',
     start: 'Start',
     processing: 'Processing...',
-    enriching: 'Enrich with AI',
+    enriching: 'Enrich',
     summary: 'SUMMARY',
     keyPoints: 'KEY POINTS',
     actionItems: 'ACTION ITEMS',
@@ -112,7 +112,7 @@ const translations = {
     howToUse: 'Guide',
     step1: 'Click the microphone button to start recording.',
     step2: 'Speak clearly. The transcription appears after you stop recording.',
-    step3: 'Click "Enrich with AI" to generate summaries and action items.',
+    step3: 'Click "Enrich" to generate summaries and action items.',
     shortcutRecord: 'Start/Stop Recording',
     qaTitle: 'Q&A',
     qaEmpty: 'Ask questions about the transcription.',
@@ -483,201 +483,147 @@ const Home: NextPage = () => {
 
   return (
     <Layout>
-      {/* Sticky Top Bar */}
-      <div className="sticky top-0 z-30 w-full bg-everlast-bg/90 backdrop-blur-md border-b border-white/5">
-        <div className="relative max-w-5xl mx-auto px-6 py-6 flex flex-col items-center">
-          <div className="absolute right-0 top-0 flex items-center gap-4">
+      {/* Refined Top Bar */}
+      <div className="w-full flex justify-between items-center py-4 px-2 mb-8 border-b border-white/5">
+        <div className="flex items-center gap-6">
+          <h1 className="text-2xl font-serif tracking-[0.2em] text-white/90">
+            ENRICH
+          </h1>
+          <div className="h-4 w-px bg-white/10 hidden md:block" />
+          <div className="hidden md:block">
+            <StepIndicator
+              currentStep={currentStep}
+              labels={{
+                record: t.record,
+                transcribe: t.transcribe,
+                enrich: t.enrich
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setLanguage(l => l === 'de' ? 'en' : 'de')}
-            className="text-xs font-bold text-gray-500 hover:text-white uppercase tracking-wider"
+            className="px-3 py-1 rounded-full border border-white/10 text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-widest transition-all"
           >
             {language}
           </button>
-          <button
-            onClick={() => setShowInfo(true)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
-          >
-            <Info className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setShowHistory(true)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
-          >
-            <History className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-          </div>
-          <h1 className="text-xl font-bold tracking-widest mb-4 text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-400">
-            EVERLAST ENRICHMENT
-          </h1>
-          <StepIndicator
-            currentStep={currentStep}
-            labels={{
-              record: t.record,
-              transcribe: t.transcribe,
-              enrich: t.enrich
-            }}
-          />
+          <div className="w-px h-4 bg-white/10 mx-1" />
+          {[
+            { icon: History, onClick: () => setShowHistory(true) },
+            { icon: Settings, onClick: () => setShowSettings(true) },
+            { icon: Info, onClick: () => setShowInfo(true) },
+          ].map((item, i) => (
+            <button
+              key={i}
+              onClick={item.onClick}
+              className="p-2 rounded-xl hover:bg-white/5 transition-all text-gray-400 hover:text-everlast-gold"
+            >
+              <item.icon className="w-5 h-5" />
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Main Content Stack */}
-      <div className="flex-1 flex flex-col gap-8 w-full max-w-5xl mx-auto relative z-10 pb-20">
+      {/* Workspace Grid */}
+      <div className={clsx(
+        "flex-1 w-full grid gap-8 transition-all duration-700 ease-in-out",
+        (currentStep === 'enrich' && lastResult) ? "grid-cols-1 lg:grid-cols-[450px_1fr]" : "grid-cols-1 max-w-3xl mx-auto"
+      )}>
 
-        {/* SECTION 1: Composer (Text + Record) */}
-        <section ref={editorRef} className="glass-panel rounded-xl p-6">
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-6 items-center">
-            <div>
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  {t.transcribe}
-                </h3>
-                <button
-                  onClick={enrichFromText}
-                  disabled={isProcessing || !rawTranscription.trim()}
-                  className={clsx(
-                    "group px-5 py-1.5 rounded-full text-sm font-bold tracking-wider flex items-center gap-2 transition-all duration-500",
-                    "bg-[#FDFD96] text-black border-2 border-transparent shadow-[0_0_20px_rgba(253,253,150,0.2)]",
-                    "hover:bg-transparent hover:text-white hover:border-[#FDFD96] hover:shadow-[0_0_25px_rgba(253,253,150,0.4),inset_0_0_15px_rgba(253,253,150,0.4)]",
-                    (isProcessing || !rawTranscription.trim()) && "opacity-50 cursor-not-allowed grayscale"
-                  )}
-                >
-                  <span>{isProcessing ? t.processing : t.enriching}</span>
-                  {isProcessing ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                  )}
-                </button>
-              </div>
-              <textarea
-                value={rawTranscription}
-                onChange={(e) => setRawTranscription(e.target.value)}
-                className="w-full h-36 bg-black/20 border border-white/5 rounded-lg p-3 text-sm text-gray-300 focus:outline-none focus:border-everlast-primary/50 resize-y"
-                placeholder={t.transcriptionPlaceholder}
-              />
-              {isProcessing && processingStatus && (
-                <motion.p
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                  className="text-everlast-primary text-sm mt-3 font-medium animate-pulse"
-                >
-                  {processingStatus.message}
-                </motion.p>
-              )}
-              {error && (
-                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 text-red-200 text-xs rounded-lg">
-                  {error}
+        {/* LEFT COLUMN: Input & Control */}
+        <div className="flex flex-col gap-6">
+          <section ref={editorRef} className="glass-panel rounded-2xl p-6 border border-white/5 bg-white/[0.02] shadow-2xl relative overflow-hidden group">
+            {/* Ambient edge glow */}
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-everlast-gold/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">
+                {t.transcribe}
+              </h3>
+              {isRecording && (
+                <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-red-500 uppercase tracking-tighter">Live</span>
                 </div>
               )}
             </div>
-            <div className="flex justify-center">
+
+            <textarea
+              value={rawTranscription}
+              onChange={(e) => setRawTranscription(e.target.value)}
+              className="w-full h-48 bg-transparent text-gray-200 text-base leading-relaxed placeholder:text-gray-700 focus:outline-none resize-none custom-scrollbar"
+              placeholder={t.transcriptionPlaceholder}
+            />
+
+            <div className="mt-6 flex items-center justify-between gap-4 border-t border-white/5 pt-6">
               <MicrophoneButton
                 isRecording={isRecording}
                 onClick={toggleRecording}
                 disabled={isProcessing}
                 label={isRecording ? t.stopRecord : t.startRecord}
               />
+
+              <button
+                onClick={enrichFromText}
+                disabled={isProcessing || !rawTranscription.trim()}
+                className={clsx(
+                  "group relative overflow-hidden px-8 py-3 rounded-xl font-bold tracking-widest text-xs uppercase transition-all duration-300",
+                  "bg-everlast-gold text-black hover:shadow-[0_0_30px_rgba(251,191,36,0.2)] active:scale-95",
+                  (isProcessing || !rawTranscription.trim()) && "opacity-30 cursor-not-allowed grayscale"
+                )}
+              >
+                <div className="relative z-10 flex items-center gap-2">
+                  <span>{isProcessing ? t.processing : t.enriching}</span>
+                  {isProcessing ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+                  )}
+                </div>
+                {/* Metallic shimmer effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+              </button>
             </div>
-          </div>
-        </section>
 
-        {/* SECTION 2: Results Area (Conditionally visible) */}
-        <AnimatePresence>
-          {currentStep === 'enrich' && lastResult && (
-            <motion.div
-              ref={resultsRef}
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="grid grid-cols-1 md:grid-cols-2 gap-4"
-            >
-              {/* Corrected Text REMOVED per user request */}
-
-              {lastResult.enriched?.structured?.summary && (
-                <ResultCard title={t.summary} className="col-span-1" delay={0.2}>
-                  {lastResult.enriched.structured.summary}
-                </ResultCard>
-              )}
-
-              {(lastResult.enriched?.structured?.bullet_points?.length || 0) > 0 && (
-                <ResultCard title={t.keyPoints} className="col-span-1" delay={0.3}>
-                  <ul className="list-disc list-outside ml-4 space-y-1 text-gray-300">
-                    {(lastResult.enriched.structured.bullet_points || []).map((p: string, i: number) => (
-                      <li key={i}>{p}</li>
-                    ))}
-                  </ul>
-                </ResultCard>
-              )}
-
-              {(lastResult.enriched?.structured?.action_items?.length || 0) > 0 && (
-                <ResultCard title={t.actionItems} className="col-span-1 border-l-4 border-l-everlast-secondary" delay={0.4}>
-                  <ul className="space-y-2">
-                    {(lastResult.enriched.structured.action_items || []).map((item: string, i: number) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-everlast-secondary flex-shrink-0" />
-                        <span className="text-gray-200">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </ResultCard>
-              )}
-
-              {/* Copy All Button */}
-              <div className="col-span-full flex justify-end">
-                <button
-                  onClick={() => copyToClipboard(formatFullResult(lastResult))}
-                  className="flex items-center gap-2 text-xs text-everlast-text-muted hover:text-white transition-colors"
-                >
-                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  <span>{copied ? t.copied : t.copyAll}</span>
-                </button>
+            {error && (
+              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] rounded-xl flex items-center gap-2 uppercase font-bold tracking-wider">
+                <X className="w-3 h-3" />
+                {error}
               </div>
+            )}
+          </section>
 
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* SECTION 3: Q&A */}
-        <AnimatePresence>
+          {/* Q&A Integrated into Left Column when enriched */}
           {currentStep === 'enrich' && (
-            <motion.section
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass-panel rounded-xl p-6"
-            >
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+            <section className="glass-panel rounded-2xl p-6 border border-white/5 bg-white/[0.01]">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">
                   {t.qaTitle}
                 </h3>
                 <button
-                  onClick={() => {
-                    setChatMessages([])
-                    updateHistoryChat([])
-                  }}
-                  className="text-xs text-gray-500 hover:text-white transition-colors"
+                  onClick={() => { setChatMessages([]); updateHistoryChat([]); }}
+                  className="text-[10px] font-bold text-gray-600 hover:text-white transition-colors uppercase"
                 >
                   {t.qaClear}
                 </button>
               </div>
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+
+              <div className="space-y-4 max-h-[300px] overflow-y-auto mb-6 pr-2 custom-scrollbar">
                 {chatMessages.length === 0 ? (
-                  <p className="text-sm text-gray-500">
-                    {t.qaEmpty}
-                  </p>
+                  <div className="py-8 text-center">
+                    <p className="text-xs text-gray-600 italic">{t.qaEmpty}</p>
+                  </div>
                 ) : (
                   chatMessages.map((msg, index) => (
                     <div
-                      key={`${msg.role}-${index}`}
+                      key={index}
                       className={clsx(
-                        'p-3 rounded-lg text-sm',
+                        'p-4 rounded-xl text-sm leading-relaxed',
                         msg.role === 'user'
-                          ? 'bg-white/5 text-gray-200'
-                          : 'bg-everlast-secondary/10 text-gray-100 border border-everlast-secondary/20'
+                          ? 'bg-white/[0.03] text-gray-400 border border-white/5'
+                          : 'bg-everlast-gold/[0.03] text-gray-200 border border-everlast-gold/10'
                       )}
                     >
                       {msg.content}
@@ -685,36 +631,101 @@ const Home: NextPage = () => {
                   ))
                 )}
               </div>
-              <div className="mt-4 flex gap-2">
+
+              <div className="relative group">
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      askQuestion()
-                    }
-                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
                   placeholder={t.qaPlaceholder}
-                  className="flex-1 bg-black/20 border border-white/5 rounded-lg p-3 text-sm text-gray-200 outline-none focus:border-everlast-primary/50"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-gray-200 focus:outline-none focus:border-everlast-gold/40 transition-all"
                 />
                 <button
                   onClick={askQuestion}
                   disabled={chatBusy || !chatInput.trim()}
-                  className={clsx(
-                    'px-4 py-2 rounded-lg text-sm font-semibold transition-all',
-                    'bg-everlast-secondary text-black hover:bg-[#ffd060]',
-                    (chatBusy || !chatInput.trim()) && 'opacity-50 cursor-not-allowed'
-                  )}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-everlast-gold hover:text-everlast-gold-light disabled:opacity-30 transition-all"
                 >
-                  {chatBusy ? t.qaAsking : t.qaAsk}
+                  {chatBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <ChevronRight className="w-5 h-5" />}
                 </button>
               </div>
-            </motion.section>
+            </section>
           )}
-        </AnimatePresence>
+        </div>
 
+        {/* RIGHT COLUMN: Enrichment Results */}
+        <div className="flex flex-col gap-6">
+          <AnimatePresence mode="wait">
+            {currentStep === 'enrich' && lastResult ? (
+              <motion.div
+                key="results"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className="flex flex-col gap-6"
+              >
+                <div className="grid grid-cols-1 gap-6">
+                  {lastResult.enriched?.structured?.summary && (
+                    <ResultCard title={t.summary} delay={0.1}>
+                      <p className="text-lg text-gray-200 font-serif leading-relaxed italic">
+                        "{lastResult.enriched.structured.summary}"
+                      </p>
+                    </ResultCard>
+                  )}
+
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    {(lastResult.enriched?.structured?.bullet_points?.length || 0) > 0 && (
+                      <ResultCard title={t.keyPoints} delay={0.2}>
+                        <ul className="space-y-3">
+                          {lastResult.enriched.structured.bullet_points.map((p: string, i: number) => (
+                            <li key={i} className="flex gap-3 text-sm text-gray-400">
+                              <span className="text-everlast-gold mt-1">•</span>
+                              <span>{p}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </ResultCard>
+                    )}
+
+                    {(lastResult.enriched?.structured?.action_items?.length || 0) > 0 && (
+                      <ResultCard title={t.actionItems} delay={0.3} className="border-l-2 border-everlast-gold/30 bg-everlast-gold/[0.02]">
+                        <ul className="space-y-3">
+                          {lastResult.enriched.structured.action_items.map((item: string, i: number) => (
+                            <li key={i} className="flex gap-3 items-start group">
+                              <div className="mt-1 w-4 h-4 rounded border border-everlast-gold/30 flex-shrink-0 flex items-center justify-center group-hover:border-everlast-gold/60 transition-colors">
+                                <Check className="w-2.5 h-2.5 text-everlast-gold opacity-0 group-hover:opacity-100" />
+                              </div>
+                              <span className="text-sm text-gray-300 leading-tight">{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </ResultCard>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-white/5">
+                  <button
+                    onClick={() => copyToClipboard(formatFullResult(lastResult))}
+                    className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600 hover:text-everlast-gold transition-all"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? t.copied : t.copyAll}</span>
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center opacity-20 py-20">
+                <div className="w-32 h-32 border border-white/10 rounded-full flex items-center justify-center mb-6">
+                  <div className="w-24 h-24 border border-white/5 rounded-full flex items-center justify-center animate-pulse-slow">
+                    <h1 className="font-serif italic text-4xl">E</h1>
+                  </div>
+                </div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-gray-500">Awaiting Enrichment</p>
+              </div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       <SettingsDrawer isOpen={showSettings} onClose={() => setShowSettings(false)} title={t.settings}>
