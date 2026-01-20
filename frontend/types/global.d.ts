@@ -15,6 +15,8 @@ export interface ElectronAPI {
   setOpenCodeKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setLLMProvider: (provider: string) => Promise<{ success: boolean; error?: string }>
   enrichText: (text: string) => Promise<{ success: boolean; result?: TranscriptionResult['enriched']; error?: string }>
+  askQuestion: (payload: { transcript: string; question: string }) => Promise<{ success: boolean; answer?: string; error?: string }>
+  removeListener: (channel: string, callback: (...args: any[]) => void) => void
 }
 
 export interface TranscriptionResult {

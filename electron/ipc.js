@@ -115,6 +115,17 @@ function setupIpcHandlers(window) {
     }
   });
 
+  ipcMain.handle('ask-question', async (event, payload) => {
+    try {
+      const transcript = payload?.transcript || '';
+      const question = payload?.question || '';
+      const answer = await llm.askQuestion(transcript, question);
+      return { success: true, answer };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('set-ollama-model', async (event, modelName) => {
     try {
       const success = llm.setActiveModel(modelName);

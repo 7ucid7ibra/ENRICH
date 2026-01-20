@@ -2,6 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
 
+const DEFAULT_LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 120000);
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = DEFAULT_LLM_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 class LLMProcessor {
   constructor() {
     this.ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
@@ -56,23 +69,25 @@ class LLMProcessor {
     }
 
     try {
+      const maxChars = Number(process.env.LLM_MAX_INPUT_CHARS || 6000);
+      const trimmedText = text && text.length > maxChars ? text.slice(0, maxChars) : text;
       if (this.activeProvider === 'ollama') {
         if (!(await this.ensureOllamaRunning(true))) {
           throw new Error('Ollama is not reachable. Start it with "ollama serve".');
         }
-        return await this.enrichWithOllama(text, presetConfig);
+        return await this.enrichWithOllama(trimmedText, presetConfig);
       }
       
       if (this.activeProvider === 'openai') {
-        return await this.enrichWithOpenAI(text, presetConfig);
+        return await this.enrichWithOpenAI(trimmedText, presetConfig);
       }
 
       if (this.activeProvider === 'gemini') {
-        return await this.enrichWithGemini(text, presetConfig);
+        return await this.enrichWithGemini(trimmedText, presetConfig);
       }
 
       if (this.activeProvider === 'opencode') {
-        return await this.enrichWithOpenCode(text, presetConfig);
+        return await this.enrichWithOpenCode(trimmedText, presetConfig);
       }
 
       throw new Error(`Unsupported provider: ${this.activeProvider}`);
@@ -82,10 +97,20 @@ class LLMProcessor {
     }
   }
 
+  async askQuestion(transcriptText, question) {
+    if (!question || typeof question !== 'string') {
+      throw new Error('Question is required');
+    }
+
+    const systemPrompt = 'You answer questions about the provided transcript. Be concise and accurate.';
+    const userPrompt = `Transcript:\n${transcriptText || '(empty)'}\n\nQuestion:\n${question}\n\nAnswer:`;
+    return this.generateText(systemPrompt, userPrompt);
+  }
+
   async enrichWithOllama(text, presetConfig) {
     const prompt = presetConfig.prompt.replace('{text}', text);
     
-    const response = await fetch(`${this.ollamaUrl}/api/generate`, {
+    const response = await fetchWithTimeout(`${this.ollamaUrl}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -112,6 +137,33 @@ class LLMProcessor {
     return this.parseEnrichedOutput(enrichedText, presetConfig);
   }
 
+  async generateWithOllama(systemPrompt, userPrompt) {
+    const prompt = `${systemPrompt}\n\n${userPrompt}`;
+    const response = await fetchWithTimeout(`${this.ollamaUrl}/api/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: this.activeModel,
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0.2,
+          top_p: 0.9
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Ollama request failed: ${response.status} ${response.statusText} ${body}`.trim());
+    }
+
+    const result = await response.json();
+    return result.response || '';
+  }
+
   async enrichWithOpenAI(text, presetConfig) {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OpenAI API key not configured');
@@ -119,7 +171,7 @@ class LLMProcessor {
 
     const prompt = presetConfig.prompt.replace('{text}', text);
     
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -149,6 +201,36 @@ class LLMProcessor {
     const enrichedText = result.choices[0].message.content;
     
     return this.parseEnrichedOutput(enrichedText, presetConfig);
+  }
+
+  async generateWithOpenAI(systemPrompt, userPrompt) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OpenAI API key not configured');
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: this.activeModel || 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.2
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`OpenAI request failed: ${response.status} ${response.statusText} ${body}`.trim());
+    }
+
+    const result = await response.json();
+    return result.choices?.[0]?.message?.content || '';
   }
 
   async enrichWithOpenCode(text, presetConfig) {
@@ -206,7 +288,7 @@ class LLMProcessor {
       };
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload)
@@ -225,6 +307,62 @@ class LLMProcessor {
       enrichedText = result.choices?.[0]?.message?.content || '';
     }
     return this.parseEnrichedOutput(enrichedText, presetConfig);
+  }
+
+  async generateWithOpenCode(systemPrompt, userPrompt) {
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ];
+    const model = this.activeModel || 'grok-code';
+    const headers = { 'Content-Type': 'application/json' };
+    if (process.env.OPENCODE_API_KEY) {
+      headers.Authorization = `Bearer ${process.env.OPENCODE_API_KEY}`;
+    }
+
+    const anthropicModels = new Set([
+      'minimax-m2.1-free',
+      'claude-sonnet-4',
+      'claude-3-5-haiku',
+      'claude-haiku-4-5'
+    ]);
+
+    let url;
+    let payload;
+    if (anthropicModels.has(model)) {
+      url = 'https://opencode.ai/zen/v1/messages';
+      payload = {
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: `${systemPrompt}\n\n${userPrompt}` }]
+          }
+        ],
+        max_tokens: 512
+      };
+    } else {
+      url = 'https://opencode.ai/zen/v1/chat/completions';
+      payload = { model, messages };
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`OpenCode request failed: ${response.status} ${response.statusText} ${body}`.trim());
+    }
+
+    const result = await response.json();
+    if (anthropicModels.has(model)) {
+      const parts = result.content || [];
+      return parts.map(part => part.text || '').join('');
+    }
+    return result.choices?.[0]?.message?.content || '';
   }
 
   async enrichWithGemini(text, presetConfig) {
@@ -258,7 +396,7 @@ class LLMProcessor {
       payload.system_instruction = { parts: [{ text: systemPrompt }] };
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -277,6 +415,59 @@ class LLMProcessor {
       throw new Error('Gemini request succeeded but returned empty content');
     }
     return this.parseEnrichedOutput(enrichedText, presetConfig);
+  }
+
+  async generateWithGemini(systemPrompt, userPrompt) {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('Gemini API key not configured');
+    }
+
+    const model = this.activeModel || 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    const payload = {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: userPrompt }]
+        }
+      ],
+      system_instruction: { parts: [{ text: systemPrompt }] }
+    };
+
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Gemini request failed: ${response.status} ${response.statusText} ${body}`.trim());
+    }
+
+    const result = await response.json();
+    return result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+
+  async generateText(systemPrompt, userPrompt) {
+    if (this.activeProvider === 'ollama') {
+      if (!(await this.ensureOllamaRunning(true))) {
+        throw new Error('Ollama is not reachable. Start it with "ollama serve".');
+      }
+      return this.generateWithOllama(systemPrompt, userPrompt);
+    }
+    if (this.activeProvider === 'openai') {
+      return this.generateWithOpenAI(systemPrompt, userPrompt);
+    }
+    if (this.activeProvider === 'gemini') {
+      return this.generateWithGemini(systemPrompt, userPrompt);
+    }
+    if (this.activeProvider === 'opencode') {
+      return this.generateWithOpenCode(systemPrompt, userPrompt);
+    }
+    throw new Error(`Unsupported provider: ${this.activeProvider}`);
   }
 
   loadPreset(presetName) {
@@ -467,7 +658,7 @@ class LLMProcessor {
 
   async ensureOllamaRunning(forceStart = false) {
     try {
-      const response = await fetch(`${this.ollamaUrl}/api/tags`);
+    const response = await fetchWithTimeout(`${this.ollamaUrl}/api/tags`, {}, 3000);
       if (response.ok) {
         return true;
       }
@@ -485,7 +676,7 @@ class LLMProcessor {
     }
 
     try {
-      const response = await fetch(`${this.ollamaUrl}/api/tags`);
+      const response = await fetchWithTimeout(`${this.ollamaUrl}/api/tags`, {}, 3000);
       return response.ok;
     } catch (error) {
       return false;
