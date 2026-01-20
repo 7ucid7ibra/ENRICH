@@ -148,7 +148,7 @@ const Home: NextPage = () => {
   const [availableModels, setAvailableModels] = useState<any>(null)
   const [activePreset, setActivePreset] = useState<string | null>(null)
   const [activeOllamaModel, setActiveOllamaModel] = useState<string | null>(null)
-  const [llmProvider, setLlmProvider] = useState<string>('ollama')
+  const [llmProvider, setLlmProvider] = useState<string>('opencode')
   const [providerModels, setProviderModels] = useState<string[]>([])
   const [ollamaUrl, setOllamaUrl] = useState('')
   const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '' })
@@ -255,6 +255,37 @@ const Home: NextPage = () => {
       window.electronAPI.removeListener?.('processing-error', onProcessingError)
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      const stored = window.localStorage.getItem('everlast-history')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed)) {
+          setHistoryItems(parsed)
+          if (parsed[0]?.id) {
+            setActiveHistoryId(parsed[0].id)
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load history:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      window.localStorage.setItem('everlast-history', JSON.stringify(historyItems))
+    } catch (error) {
+      console.warn('Failed to save history:', error)
+    }
+  }, [historyItems])
 
   // --- Logic Helpers ---
 

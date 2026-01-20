@@ -18,7 +18,7 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = DEFAULT_LLM_TIMEO
 class LLMProcessor {
   constructor() {
     this.ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
-    this.activeProvider = process.env.LLM_PROVIDER || 'ollama';
+    this.activeProvider = process.env.LLM_PROVIDER || 'opencode';
     this.defaultModel = process.env.OLLAMA_MODEL || 'mistral';
     this.activeModel = this.defaultModel;
     this.presetsDir = path.join(__dirname, '../presets');
