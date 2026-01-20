@@ -14,6 +14,10 @@ class AudioRecorder {
 
   async startRecording() {
     try {
+      if (recording) {
+        console.warn('Recording already in progress');
+        return false;
+      }
       console.log('Starting audio recording...');
       audioChunks = [];
       
@@ -21,7 +25,7 @@ class AudioRecorder {
         sampleRateHertz: this.sampleRate,
         threshold: 0,
         verbose: false,
-        recordProgram: 'rec', // or 'sox'
+        recordProgram: process.env.RECORD_PROGRAM || 'sox',
         silence: '1.0',
         channels: this.channels,
         audioType: 'wav'
@@ -52,17 +56,56 @@ class AudioRecorder {
       }
 
       console.log('Stopping recording...');
-      
+
+      const stream = recording.stream();
+      let resolved = false;
+      const finalize = () => {
+        if (resolved) return;
+        resolved = true;
+
+        const audioBuffer = Buffer.concat(audioChunks);
+        recording = null;
+        audioChunks = [];
+        console.log(`Recording stopped. Audio size: ${audioBuffer.length} bytes`);
+        resolve(audioBuffer);
+      };
+
+      if (stream) {
+        stream.once('close', finalize);
+        stream.once('end', finalize);
+      }
+
       recording.stop();
-      
-      // Combine all audio chunks
-      const audioBuffer = Buffer.concat(audioChunks);
-      
-      recording = null;
-      audioChunks = [];
-      
-      console.log(`Recording stopped. Audio size: ${audioBuffer.length} bytes`);
-      resolve(audioBuffer);
+
+      const proc = recording.process || recording.childProcess;
+      if (proc && proc.pid) {
+        proc.once?.('exit', finalize);
+        proc.once?.('close', finalize);
+        setTimeout(() => {
+          if (!resolved) {
+            try {
+              proc.kill('SIGKILL');
+            } catch (error) {
+              console.warn('Failed to kill recording process:', error);
+            }
+            finalize();
+          }
+        }, 800);
+      } else {
+        setTimeout(finalize, 300);
+      }
+
+      if (stream) {
+        stream.removeAllListeners('data');
+        stream.removeAllListeners('error');
+        setTimeout(() => {
+          try {
+            stream.destroy();
+          } catch (error) {
+            console.warn('Failed to destroy audio stream:', error);
+          }
+        }, 200);
+      }
     });
   }
 

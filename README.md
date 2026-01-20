@@ -166,6 +166,8 @@ export WHISPER_NO_GPU=1
 export WHISPER_THREADS=4
 export WHISPER_KEEP_FILES=1
 export WHISPER_EXTRA_ARGS="--print-progress"
+export LLM_MAX_INPUT_CHARS=6000
+export LLM_TIMEOUT_MS=120000
 ```
 
 ## Build & Run

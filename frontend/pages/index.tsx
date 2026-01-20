@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Copy, Check, ChevronRight, Info, X, Loader2 } from 'lucide-react'
+import { Settings, Copy, Check, ChevronRight, Info, X, Loader2, History } from 'lucide-react'
 import type { NextPage } from 'next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
@@ -10,6 +10,7 @@ import StepIndicator from '../components/StepIndicator'
 import MicrophoneButton from '../components/MicrophoneButton'
 import ResultCard from '../components/ResultCard'
 import SettingsDrawer from '../components/SettingsDrawer'
+import HistoryDrawer from '../components/HistoryDrawer'
 
 interface ProcessingStatus {
   stage: 'transcribing' | 'enriching'
@@ -22,6 +23,13 @@ interface RecordingStatus {
 
 type Step = 'record' | 'transcribe' | 'enrich'
 type Language = 'de' | 'en'
+type HistoryItem = {
+  id: string
+  createdAt: number
+  transcription: string
+  enriched: TranscriptionResult['enriched']
+  chat: { role: 'user' | 'assistant'; content: string }[]
+}
 
 const translations = {
   de: {
@@ -43,6 +51,8 @@ const translations = {
     apiKey: 'API Key',
     preset: 'Prompt Preset',
     transcriptionPlaceholder: 'Transkription erscheint hier...',
+    history: 'Verlauf',
+    noHistory: 'Keine Einträge',
     errorRecord: 'Fehler bei Aufnahme',
     errorEnrich: 'Fehler beim Anreichern',
     save: 'Speichern',
@@ -58,7 +68,13 @@ const translations = {
     step1: 'Klicken Sie auf den Mikrofon-Button, um die Aufnahme zu starten.',
     step2: 'Sprechen Sie deutlich. Die Transkription erscheint nach Ende der Aufnahme.',
     step3: 'Klicken Sie auf "Anreichern", um Zusammenfassungen und Action Items zu erstellen.',
-    shortcutRecord: 'Aufnahme starten/stoppen'
+    shortcutRecord: 'Aufnahme starten/stoppen',
+    qaTitle: 'Q&A',
+    qaEmpty: 'Stelle Fragen zur Transkription.',
+    qaPlaceholder: 'Frage zur Transkription stellen...',
+    qaClear: 'Leeren',
+    qaAsk: 'Fragen',
+    qaAsking: 'Frage läuft...'
   },
   en: {
     record: 'Record',
@@ -78,6 +94,8 @@ const translations = {
     apiKey: 'API Key',
     preset: 'Prompt Preset',
     transcriptionPlaceholder: 'Transcription will appear here...',
+    history: 'History',
+    noHistory: 'No entries yet',
     errorRecord: 'Failed to record',
     errorEnrich: 'Failed to enrich',
     save: 'Save',
@@ -95,7 +113,13 @@ const translations = {
     step1: 'Click the microphone button to start recording.',
     step2: 'Speak clearly. The transcription appears after you stop recording.',
     step3: 'Click "Enrich with AI" to generate summaries and action items.',
-    shortcutRecord: 'Start/Stop Recording'
+    shortcutRecord: 'Start/Stop Recording',
+    qaTitle: 'Q&A',
+    qaEmpty: 'Ask questions about the transcription.',
+    qaPlaceholder: 'Ask a question about the transcript...',
+    qaClear: 'Clear',
+    qaAsk: 'Ask',
+    qaAsking: 'Asking...'
   }
 }
 
@@ -110,9 +134,15 @@ const Home: NextPage = () => {
   const [lastResult, setLastResult] = useState<TranscriptionResult | null>(null)
   const [rawTranscription, setRawTranscription] = useState<string>('')
   const [showSettings, setShowSettings] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null)
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
 
   // Settings State
   const [availableModels, setAvailableModels] = useState<any>(null)
@@ -121,64 +151,108 @@ const Home: NextPage = () => {
   const [llmProvider, setLlmProvider] = useState<string>('ollama')
   const [providerModels, setProviderModels] = useState<string[]>([])
   const [ollamaUrl, setOllamaUrl] = useState('')
-  const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '', opencode: '' })
+  const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '' })
   const [saveStatus, setSaveStatus] = useState<Record<string, boolean>>({})
 
   // Refs for scrolling
   const resultsRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
+  const tRef = useRef(t)
+  const isProcessingRef = useRef(isProcessing)
+  const lastResultRef = useRef(lastResult)
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.electronAPI) {
-      window.electronAPI.onRecordingStatus((status: RecordingStatus) => {
-        setIsRecording(status.isRecording)
-        if (status.isRecording) {
-          setCurrentStep('record')
-          setLastResult(null)
-          setRawTranscription('')
-        }
-      })
+    tRef.current = t
+  }, [t])
 
-      window.electronAPI.onProcessingStatus((status: ProcessingStatus) => {
-        let localizedMsg = status.message
-        if (status.stage === 'transcribing') localizedMsg = t.transcribing
-        if (status.stage === 'enriching') localizedMsg = t.enriching_progress
+  useEffect(() => {
+    isProcessingRef.current = isProcessing
+    lastResultRef.current = lastResult
+  }, [isProcessing, lastResult])
 
-        setProcessingStatus({ ...status, message: localizedMsg })
-        setIsProcessing(true)
-        if (status.stage === 'transcribing') {
-          setCurrentStep('transcribe')
-        } else if (status.stage === 'enriching') {
-          setCurrentStep('enrich')
-        }
-      })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI) {
+      return
+    }
 
-      window.electronAPI.onTranscriptionResult((result: TranscriptionResult) => {
-        setLastResult(result)
-        setIsProcessing(false)
-        setProcessingStatus(null)
-        setError(null)
+    const onRecordingStatus = (status: RecordingStatus) => {
+      setIsRecording(status.isRecording)
+      if (status.isRecording) {
+        setCurrentStep('record')
+        setLastResult(null)
+        setRawTranscription('')
+        setChatMessages([])
+        setActiveHistoryId(null)
+      }
+    }
+
+    const onProcessingStatus = (status: ProcessingStatus) => {
+      const currentT = tRef.current
+      let localizedMsg = status.message
+      if (status.stage === 'transcribing') localizedMsg = currentT.transcribing
+      if (status.stage === 'enriching') localizedMsg = currentT.enriching_progress
+
+      setProcessingStatus({ ...status, message: localizedMsg })
+      setIsProcessing(true)
+      if (status.stage === 'transcribing') {
+        setCurrentStep('transcribe')
+      } else if (status.stage === 'enriching') {
         setCurrentStep('enrich')
-        // Auto scroll to results
-        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-      })
+      }
+    }
 
-      window.electronAPI.onTranscriptionRaw((data: { text: string }) => {
-        setRawTranscription(data.text || '')
-        if (!isProcessing && !lastResult) {
-          setCurrentStep('transcribe')
-          // Auto scroll to editor
-          setTimeout(() => editorRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-        }
-      })
+    const onTranscriptionResult = (result: TranscriptionResult) => {
+      setLastResult(result)
+      setRawTranscription(result.original || '')
+      setIsProcessing(false)
+      setProcessingStatus(null)
+      setError(null)
+      setCurrentStep('enrich')
+      setChatMessages([])
+      const historyItem = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        createdAt: Date.now(),
+        transcription: result.original,
+        enriched: result.enriched,
+        chat: []
+      }
+      addHistoryItem(historyItem)
+      // Auto scroll to results
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    }
 
-      window.electronAPI.onProcessingError((errorData: { error: string }) => {
-        setError(errorData.error)
-        setIsProcessing(false)
-        setProcessingStatus(null)
-      })
+    const onTranscriptionRaw = (data: { text: string }) => {
+      setRawTranscription(data.text || '')
+      if (!isProcessingRef.current && !lastResultRef.current) {
+        setCurrentStep('transcribe')
+        // Auto scroll to editor
+        setTimeout(() => editorRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+      }
+    }
 
-      loadAvailableModels()
+    const onProcessingError = (errorData: { error: string }) => {
+      setError(errorData.error)
+      setIsProcessing(false)
+      setProcessingStatus(null)
+    }
+
+    window.electronAPI.onRecordingStatus(onRecordingStatus)
+    window.electronAPI.onProcessingStatus(onProcessingStatus)
+    window.electronAPI.onTranscriptionResult(onTranscriptionResult)
+    window.electronAPI.onTranscriptionRaw(onTranscriptionRaw)
+    window.electronAPI.onProcessingError(onProcessingError)
+
+    loadAvailableModels()
+
+    return () => {
+      if (!window.electronAPI) {
+        return
+      }
+      window.electronAPI.removeListener?.('recording-status', onRecordingStatus)
+      window.electronAPI.removeListener?.('processing-status', onProcessingStatus)
+      window.electronAPI.removeListener?.('transcription-result', onTranscriptionResult)
+      window.electronAPI.removeListener?.('transcription-raw', onTranscriptionRaw)
+      window.electronAPI.removeListener?.('processing-error', onProcessingError)
     }
   }, [])
 
@@ -222,9 +296,19 @@ const Home: NextPage = () => {
       setProcessingStatus({ stage: 'enriching', message: t.enriching_progress })
       const response = await window.electronAPI?.enrichText(rawTranscription)
       if (response?.success && response.result) {
-        setLastResult({ original: rawTranscription, enriched: response.result })
+        const manualResult = { original: rawTranscription, enriched: response.result }
+        setLastResult(manualResult)
         setError(null)
         setCurrentStep('enrich')
+        setChatMessages([])
+        const historyItem = {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          createdAt: Date.now(),
+          transcription: rawTranscription,
+          enriched: response.result,
+          chat: []
+        }
+        addHistoryItem(historyItem)
       } else {
         setError(response?.error || 'Failed to enrich text')
       }
@@ -233,6 +317,43 @@ const Home: NextPage = () => {
     } finally {
       setIsProcessing(false)
       setProcessingStatus(null)
+    }
+  }
+
+  const askQuestion = async () => {
+    if (!chatInput.trim()) {
+      return
+    }
+    if (!rawTranscription.trim()) {
+      setError('No transcription available for Q&A')
+      return
+    }
+    const question = chatInput.trim()
+    setChatInput('')
+    setChatBusy(true)
+    setChatMessages((prev) => {
+      const next = [...prev, { role: 'user', content: question }]
+      updateHistoryChat(next)
+      return next
+    })
+    try {
+      const response = await window.electronAPI?.askQuestion({
+        transcript: rawTranscription,
+        question
+      })
+      if (response?.success && response.answer) {
+        setChatMessages((prev) => {
+          const next = [...prev, { role: 'assistant', content: response.answer }]
+          updateHistoryChat(next)
+          return next
+        })
+      } else {
+        setError(response?.error || 'Failed to answer question')
+      }
+    } catch (error) {
+      setError('Failed to answer question')
+    } finally {
+      setChatBusy(false)
     }
   }
 
@@ -246,17 +367,73 @@ const Home: NextPage = () => {
     }
   }
 
+  const buildHistoryKey = (item: { transcription: string; enriched: TranscriptionResult['enriched'] }) => {
+    const summary = item.enriched?.structured?.summary || ''
+    return `${item.transcription}::${summary}`
+  }
+
+  const addHistoryItem = (item: HistoryItem) => {
+    const newKey = buildHistoryKey(item)
+    let activeId = item.id
+    setHistoryItems((prev) => {
+      if (prev[0]) {
+        const sameKey = buildHistoryKey(prev[0]) === newKey
+        const sameTranscript = prev[0].transcription === item.transcription
+        const withinWindow = Math.abs(item.createdAt - prev[0].createdAt) < 5000
+        if (sameKey || (sameTranscript && withinWindow)) {
+          activeId = prev[0].id
+          return prev
+        }
+      }
+      return [item, ...prev].slice(0, 20)
+    })
+    setActiveHistoryId(activeId)
+  }
+
+  const selectHistoryItem = (item: HistoryItem) => {
+    setLastResult({ original: item.transcription, enriched: item.enriched })
+    setRawTranscription(item.transcription)
+    setCurrentStep('enrich')
+    setActiveHistoryId(item.id)
+    setChatMessages(item.chat || [])
+    setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  const updateHistoryChat = (nextChat: { role: 'user' | 'assistant'; content: string }[]) => {
+    if (!activeHistoryId) {
+      return
+    }
+    setHistoryItems((prev) =>
+      prev.map((item) =>
+        item.id === activeHistoryId ? { ...item, chat: nextChat } : item
+      )
+    )
+  }
+
   // --- Settings Logic ---
   const handleSaveKey = async (provider: string, key: string) => {
     let result
     if (provider === 'openai') result = await window.electronAPI?.setOpenAIKey(key)
     if (provider === 'gemini') result = await window.electronAPI?.setGeminiKey(key)
-    if (provider === 'opencode') result = await window.electronAPI?.setOpenCodeKey(key)
 
     if (result?.success) {
       setSaveStatus(prev => ({ ...prev, [provider]: true }))
       setTimeout(() => setSaveStatus(prev => ({ ...prev, [provider]: false })), 2000)
       await loadAvailableModels()
+    }
+  }
+
+  const handleProviderChange = async (provider: string) => {
+    try {
+      const result = await window.electronAPI?.setLLMProvider(provider)
+      if (result?.success) {
+        setLlmProvider(provider)
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to change provider')
+      }
+    } catch (error) {
+      setError('Failed to change provider')
     }
   }
 
@@ -275,9 +452,10 @@ const Home: NextPage = () => {
 
   return (
     <Layout>
-      {/* Header & Step Indicator */}
-      <div className="flex flex-col items-center mb-8 relative z-20">
-        <div className="absolute right-0 top-0 flex items-center gap-4">
+      {/* Sticky Top Bar */}
+      <div className="sticky top-0 z-30 w-full bg-everlast-bg/90 backdrop-blur-md border-b border-white/5">
+        <div className="relative max-w-5xl mx-auto px-6 py-6 flex flex-col items-center">
+          <div className="absolute right-0 top-0 flex items-center gap-4">
           <button
             onClick={() => setLanguage(l => l === 'de' ? 'en' : 'de')}
             className="text-xs font-bold text-gray-500 hover:text-white uppercase tracking-wider"
@@ -291,49 +469,90 @@ const Home: NextPage = () => {
             <Info className="w-5 h-5" />
           </button>
           <button
+            onClick={() => setShowHistory(true)}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
+          >
+            <History className="w-5 h-5" />
+          </button>
+          <button
             onClick={() => setShowSettings(!showSettings)}
             className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
           >
             <Settings className="w-5 h-5" />
           </button>
+          </div>
+          <h1 className="text-xl font-bold tracking-widest mb-4 text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-400">
+            EVERLAST ENRICHMENT
+          </h1>
+          <StepIndicator
+            currentStep={currentStep}
+            labels={{
+              record: t.record,
+              transcribe: t.transcribe,
+              enrich: t.enrich
+            }}
+          />
         </div>
-        <h1 className="text-xl font-bold tracking-widest mb-4 text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-400">
-          EVERLAST ENRICHMENT
-        </h1>
-        <StepIndicator
-          currentStep={currentStep}
-          labels={{
-            record: t.record,
-            transcribe: t.transcribe,
-            enrich: t.enrich
-          }}
-        />
       </div>
 
       {/* Main Content Stack */}
       <div className="flex-1 flex flex-col gap-8 w-full max-w-5xl mx-auto relative z-10 pb-20">
 
-        {/* SECTION 1: Recording (Always visible but morphs) */}
-        <section className="flex flex-col items-center justify-center min-h-[40vh]">
-          <MicrophoneButton
-            isRecording={isRecording}
-            onClick={toggleRecording}
-            disabled={isProcessing}
-            label={isRecording ? t.stopRecord : t.startRecord}
-          />
-          {isProcessing && processingStatus && (
-            <motion.p
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              className="text-everlast-primary text-sm mt-4 font-medium animate-pulse"
-            >
-              {processingStatus.message}
-            </motion.p>
-          )}
-          {error && (
-            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 text-red-200 text-xs rounded-lg max-w-sm text-center">
-              {error}
+        {/* SECTION 1: Composer (Text + Record) */}
+        <section ref={editorRef} className="glass-panel rounded-xl p-6">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-6 items-center">
+            <div>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  {t.transcribe}
+                </h3>
+                <button
+                  onClick={enrichFromText}
+                  disabled={isProcessing || !rawTranscription.trim()}
+                  className={clsx(
+                    "group px-5 py-1.5 rounded-full text-sm font-bold tracking-wider flex items-center gap-2 transition-all duration-500",
+                    "bg-[#FDFD96] text-black border-2 border-transparent shadow-[0_0_20px_rgba(253,253,150,0.2)]",
+                    "hover:bg-transparent hover:text-white hover:border-[#FDFD96] hover:shadow-[0_0_25px_rgba(253,253,150,0.4),inset_0_0_15px_rgba(253,253,150,0.4)]",
+                    (isProcessing || !rawTranscription.trim()) && "opacity-50 cursor-not-allowed grayscale"
+                  )}
+                >
+                  <span>{isProcessing ? t.processing : t.enriching}</span>
+                  {isProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                  )}
+                </button>
+              </div>
+              <textarea
+                value={rawTranscription}
+                onChange={(e) => setRawTranscription(e.target.value)}
+                className="w-full h-36 bg-black/20 border border-white/5 rounded-lg p-3 text-sm text-gray-300 focus:outline-none focus:border-everlast-primary/50 resize-y"
+                placeholder={t.transcriptionPlaceholder}
+              />
+              {isProcessing && processingStatus && (
+                <motion.p
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="text-everlast-primary text-sm mt-3 font-medium animate-pulse"
+                >
+                  {processingStatus.message}
+                </motion.p>
+              )}
+              {error && (
+                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 text-red-200 text-xs rounded-lg">
+                  {error}
+                </div>
+              )}
             </div>
-          )}
+            <div className="flex justify-center">
+              <MicrophoneButton
+                isRecording={isRecording}
+                onClick={toggleRecording}
+                disabled={isProcessing}
+                label={isRecording ? t.stopRecord : t.startRecord}
+              />
+            </div>
+          </div>
         </section>
 
         {/* SECTION 2: Results Area (Conditionally visible) */}
@@ -392,46 +611,76 @@ const Home: NextPage = () => {
           )}
         </AnimatePresence>
 
-        {/* SECTION 3: Editor (Visible when transcribing or enriching) */}
+        {/* SECTION 3: Q&A */}
         <AnimatePresence>
-          {(currentStep === 'transcribe' || currentStep === 'enrich') && (
+          {currentStep === 'enrich' && (
             <motion.section
-              ref={editorRef}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="glass-panel rounded-xl p-6"
             >
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  {t.transcribe}
+                  {t.qaTitle}
                 </h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={enrichFromText}
-                    disabled={isProcessing}
-                    className={clsx(
-                      "group px-5 py-1.5 rounded-full text-sm font-bold tracking-wider flex items-center gap-2 transition-all duration-500",
-                      "bg-[#FDFD96] text-black border-2 border-transparent shadow-[0_0_20px_rgba(253,253,150,0.2)]",
-                      "hover:bg-transparent hover:text-white hover:border-[#FDFD96] hover:shadow-[0_0_25px_rgba(253,253,150,0.4),inset_0_0_15px_rgba(253,253,150,0.4)]",
-                      isProcessing && "opacity-50 cursor-wait grayscale"
-                    )}
-                  >
-                    <span>{isProcessing ? t.processing : t.enriching}</span>
-                    {isProcessing ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                    )}
-                  </button>
-                </div>
+                <button
+                  onClick={() => {
+                    setChatMessages([])
+                    updateHistoryChat([])
+                  }}
+                  className="text-xs text-gray-500 hover:text-white transition-colors"
+                >
+                  {t.qaClear}
+                </button>
               </div>
-
-              <textarea
-                value={rawTranscription}
-                onChange={(e) => setRawTranscription(e.target.value)}
-                className="w-full h-32 bg-black/20 border border-white/5 rounded-lg p-3 text-sm text-gray-300 focus:outline-none focus:border-everlast-primary/50 resize-y"
-                placeholder={t.transcriptionPlaceholder}
-              />         </motion.section>
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                {chatMessages.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    {t.qaEmpty}
+                  </p>
+                ) : (
+                  chatMessages.map((msg, index) => (
+                    <div
+                      key={`${msg.role}-${index}`}
+                      className={clsx(
+                        'p-3 rounded-lg text-sm',
+                        msg.role === 'user'
+                          ? 'bg-white/5 text-gray-200'
+                          : 'bg-everlast-secondary/10 text-gray-100 border border-everlast-secondary/20'
+                      )}
+                    >
+                      {msg.content}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="mt-4 flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      askQuestion()
+                    }
+                  }}
+                  placeholder={t.qaPlaceholder}
+                  className="flex-1 bg-black/20 border border-white/5 rounded-lg p-3 text-sm text-gray-200 outline-none focus:border-everlast-primary/50"
+                />
+                <button
+                  onClick={askQuestion}
+                  disabled={chatBusy || !chatInput.trim()}
+                  className={clsx(
+                    'px-4 py-2 rounded-lg text-sm font-semibold transition-all',
+                    'bg-everlast-secondary text-black hover:bg-[#ffd060]',
+                    (chatBusy || !chatInput.trim()) && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  {chatBusy ? t.qaAsking : t.qaAsk}
+                </button>
+              </div>
+            </motion.section>
           )}
         </AnimatePresence>
 
@@ -446,15 +695,15 @@ const Home: NextPage = () => {
           <div className="space-y-3">
             <label className="text-xs font-bold text-gray-500 uppercase">{t.provider}</label>
             <div className="grid grid-cols-2 gap-2">
-              {['ollama', 'openai', 'gemini', 'opencode'].map(p => (
+              {['opencode', 'ollama', 'openai', 'gemini'].map(p => (
                 <button
                   key={p}
-                  onClick={() => window.electronAPI?.setLLMProvider(p).then(() => { setLlmProvider(p); loadAvailableModels() })}
+                  onClick={() => handleProviderChange(p)}
                   className={clsx(
                     "py-2 px-3 rounded-lg text-sm font-medium border transition-all",
                     llmProvider === p
                       ? "bg-everlast-primary/20 border-everlast-primary text-white"
-                      : "bg-surface border-white/10 text-gray-400 hover:bg-white/5"
+                      : "bg-everlast-surface border-white/10 text-gray-400 hover:bg-white/5"
                   )}
                 >
                   {p}
@@ -492,7 +741,7 @@ const Home: NextPage = () => {
                 )}
               </div>
 
-              {['openai', 'gemini', 'opencode'].includes(llmProvider) && (
+              {['openai', 'gemini'].includes(llmProvider) && (
                 <div className="space-y-5">
                   {/* API Key Input */}
                   <div className="space-y-2">
@@ -547,6 +796,38 @@ const Home: NextPage = () => {
           )}
         </div>
       </SettingsDrawer>
+
+      <HistoryDrawer isOpen={showHistory} onClose={() => setShowHistory(false)} title={t.history}>
+        {historyItems.length === 0 ? (
+          <div className="text-sm text-gray-400">{t.noHistory}</div>
+        ) : (
+          <div className="space-y-3">
+            {historyItems.map((item) => {
+              const summary = item.enriched?.structured?.summary || ''
+              const preview = summary || item.transcription || ''
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => selectHistoryItem(item)}
+                  className={clsx(
+                    'w-full text-left p-3 rounded-lg border transition-all',
+                    activeHistoryId === item.id
+                      ? 'border-everlast-secondary/60 bg-white/5'
+                      : 'border-white/10 bg-black/30 hover:bg-white/5'
+                  )}
+                >
+                  <div className="text-xs text-gray-500 mb-1">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-gray-200 max-h-16 overflow-hidden">
+                    {preview || t.noHistory}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </HistoryDrawer>
       {/* Info Modal */}
       <AnimatePresence>
         {showInfo && (
