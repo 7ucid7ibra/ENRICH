@@ -23,28 +23,34 @@ export default function StepIndicator({ currentStep, labels }: StepIndicatorProp
     const currentIndex = getCurrentIndex()
 
     return (
-        <div className="flex items-center justify-center space-x-4 py-4">
+        <div className="flex items-center gap-8 py-2">
             {steps.map((step, index) => {
                 const isActive = index === currentIndex
                 const isCompleted = index < currentIndex
 
                 return (
-                    <div key={step.id} className="flex items-center">
-                        <motion.div
-                            initial={false}
-                            animate={{
-                                color: isActive || isCompleted ? '#fbbf24' : '#6b7280',
-                                scale: isActive ? 1.05 : 1,
-                            }}
-                            className={twMerge(
-                                'text-sm font-medium tracking-wide uppercase',
-                                isActive ? 'text-everlast-secondary drop-shadow-md' : 'text-gray-500'
+                    <div key={step.id} className="flex items-center gap-8">
+                        <div className="flex flex-col items-start gap-1">
+                            <motion.div
+                                animate={{
+                                    color: isActive ? '#fbbf24' : isCompleted ? '#ffffff' : '#4b5563',
+                                    opacity: isActive || isCompleted ? 1 : 0.4
+                                }}
+                                className="text-[10px] font-bold tracking-[0.2em] uppercase transition-all"
+                            >
+                                {step.label}
+                            </motion.div>
+                            {isActive && (
+                                <motion.div
+                                    layoutId="step-underline"
+                                    className="h-0.5 w-full bg-everlast-gold"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                />
                             )}
-                        >
-                            {step.label}
-                        </motion.div>
+                        </div>
                         {index < steps.length - 1 && (
-                            <div className="mx-3 h-px w-8 bg-white/10" />
+                            <div className="w-12 h-px bg-white/5" />
                         )}
                     </div>
                 )
