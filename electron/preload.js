@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setGeminiKey: (apiKey) => ipcRenderer.invoke('set-gemini-key', apiKey),
   setOpenCodeKey: (apiKey) => ipcRenderer.invoke('set-opencode-key', apiKey),
   setLLMProvider: (provider) => ipcRenderer.invoke('set-llm-provider', provider),
+  setSTTProvider: (provider) => ipcRenderer.invoke('set-stt-provider', provider),
+  setDeepgramKey: (apiKey) => ipcRenderer.invoke('set-deepgram-key', apiKey),
   enrichText: (text, outputLanguage) => ipcRenderer.invoke('enrich-text', { text, outputLanguage }),
   setUILanguage: (language) => ipcRenderer.invoke('set-ui-language', language),
   askQuestion: (payload) => ipcRenderer.invoke('ask-question', payload),

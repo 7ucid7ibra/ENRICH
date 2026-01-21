@@ -81,7 +81,11 @@ const translations = {
     qaPlaceholder: 'Frage zur Transkription stellen...',
     qaClear: 'Leeren',
     qaAsk: 'Fragen',
-    qaAsking: 'Frage läuft...'
+    qaAsking: 'Frage läuft...',
+    sttProvider: 'Sprache-zu-Text',
+    sttWhisper: 'whisper',
+    sttDeepgram: 'deepgram',
+    sttApiKey: 'Deepgram API Key'
   },
   en: {
     record: 'Record',
@@ -133,7 +137,11 @@ const translations = {
     qaPlaceholder: 'Ask a question about the transcript...',
     qaClear: 'Clear',
     qaAsk: 'Ask',
-    qaAsking: 'Asking...'
+    qaAsking: 'Asking...',
+    sttProvider: 'Speech-to-Text',
+    sttWhisper: 'whisper',
+    sttDeepgram: 'deepgram',
+    sttApiKey: 'Deepgram API Key'
   }
 }
 
@@ -165,9 +173,10 @@ const Home: NextPage = () => {
   const [activePreset, setActivePreset] = useState<string | null>(null)
   const [activeOllamaModel, setActiveOllamaModel] = useState<string | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('opencode')
+  const [sttProvider, setSttProvider] = useState<string>('whisper')
   const [providerModels, setProviderModels] = useState<string[]>([])
   const [ollamaUrl, setOllamaUrl] = useState('')
-  const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '' })
+  const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '', deepgram: '' })
   const [saveStatus, setSaveStatus] = useState<Record<string, boolean>>({})
 
   // Refs for scrolling
@@ -334,6 +343,7 @@ const Home: NextPage = () => {
         setActivePreset(models?.activePreset || null)
         setActiveOllamaModel(models?.llm?.activeModel || null)
         setLlmProvider(models?.llm?.provider || 'ollama')
+        setSttProvider(models?.stt?.provider || 'whisper')
         setProviderModels(models?.llm?.models || [])
         setOllamaUrl(models?.llm?.ollamaUrl || '')
       }
@@ -494,6 +504,7 @@ const Home: NextPage = () => {
     let result
     if (provider === 'openai') result = await window.electronAPI?.setOpenAIKey(key)
     if (provider === 'gemini') result = await window.electronAPI?.setGeminiKey(key)
+    if (provider === 'deepgram') result = await window.electronAPI?.setDeepgramKey(key)
 
     if (result?.success) {
       setSaveStatus(prev => ({ ...prev, [provider]: true }))
@@ -513,6 +524,24 @@ const Home: NextPage = () => {
       }
     } catch (error) {
       setError('Failed to change provider')
+    }
+  }
+
+  const handleSttProviderChange = async (provider: string) => {
+    try {
+      setSttProvider(provider)
+      if (!window.electronAPI?.setSTTProvider) {
+        setError('STT provider control not available')
+        return
+      }
+      const result = await window.electronAPI.setSTTProvider(provider)
+      if (result?.success) {
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to change STT provider')
+      }
+    } catch (error) {
+      setError('Failed to change STT provider')
     }
   }
 
@@ -788,6 +817,47 @@ const Home: NextPage = () => {
           <div className="flex justify-between items-center border-b border-white/10 pb-4">
             <h3 className="text-lg font-bold text-gray-200">{t.settings}</h3>
           </div>
+          {/* STT Provider */}
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-gray-500 uppercase">{t.sttProvider}</label>
+            <div className="grid grid-cols-2 gap-2">
+              {['whisper', 'deepgram'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => handleSttProviderChange(p)}
+                  className={clsx(
+                    "py-2 px-3 rounded-lg text-sm font-medium border transition-all",
+                    sttProvider === p
+                      ? "bg-everlast-primary/20 border-everlast-primary text-white"
+                      : "bg-everlast-surface border-white/10 text-gray-400 hover:bg-white/5"
+                  )}
+                >
+                  {p === 'whisper' ? t.sttWhisper : t.sttDeepgram}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {sttProvider === 'deepgram' && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-500 uppercase">{t.sttApiKey}</label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="dg-..."
+                  value={apiKeys.deepgram || ''}
+                  className="flex-1 bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200 outline-none focus:border-[#FDFD96]"
+                  onChange={(e) => setApiKeys(p => ({ ...p, deepgram: e.target.value }))}
+                />
+                <button
+                  onClick={() => handleSaveKey('deepgram', apiKeys.deepgram)}
+                  className="px-3 py-1 bg-[#FDFD96] text-black hover:bg-transparent hover:text-white border border-[#FDFD96] rounded-lg text-xs transition-all"
+                >
+                  {saveStatus.deepgram ? t.saved : t.save}
+                </button>
+              </div>
+            </div>
+          )}
           {/* LLM Provider */}
           <div className="space-y-3">
             <label className="text-xs font-bold text-gray-500 uppercase">{t.provider}</label>

@@ -1,12 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const fetch = require('node-fetch');
 
 class SpeechToText {
   constructor() {
     this.whisperPath = null; // Path to whisper.cpp executable
     this.modelPath = null;   // Path to model file
     this.modelName = (process.env.WHISPER_MODEL || 'small').toLowerCase();
+    this.activeProvider = (process.env.STT_PROVIDER || 'whisper').toLowerCase();
+    this.deepgramKey = process.env.DEEPGRAM_API_KEY || null;
     this.tempDir = path.join(require('os').tmpdir(), 'voice-intelligence');
     
     // Ensure temp directory exists
@@ -16,6 +19,9 @@ class SpeechToText {
   }
 
   async initialize() {
+    if (this.activeProvider === 'deepgram') {
+      return Boolean(this.deepgramKey);
+    }
     // Try to find whisper.cpp installation
     const envWhisperPath = process.env.WHISPER_PATH;
     const possiblePaths = [
@@ -74,11 +80,12 @@ class SpeechToText {
 
   async transcribe(audioBuffer) {
     try {
-      if (!this.whisperPath || !this.modelPath) {
-        const initialized = await this.initialize();
-        if (!initialized) {
-          throw new Error('Whisper is not initialized. Check installation and model path.');
+      const initialized = await this.initialize();
+      if (!initialized) {
+        if (this.activeProvider === 'deepgram') {
+          throw new Error('Deepgram API key not configured.');
         }
+        throw new Error('Whisper is not initialized. Check installation and model path.');
       }
 
       // Save audio buffer to temporary file
@@ -87,6 +94,19 @@ class SpeechToText {
       const outputTextFile = `${outputBase}.txt`;
       const normalizedBuffer = this.ensureWavHeader(audioBuffer);
       fs.writeFileSync(audioFile, normalizedBuffer);
+      const sampleBytes = normalizedBuffer.length > 44 ? (normalizedBuffer.length - 44) : normalizedBuffer.length;
+      const durationSec = Math.max(0, sampleBytes / (16000 * 2));
+      if (this.activeProvider === 'deepgram') {
+        const transcript = await this.transcribeWithDeepgram(normalizedBuffer, durationSec);
+        if (process.env.WHISPER_KEEP_FILES !== '1') {
+          try {
+            fs.unlinkSync(audioFile);
+          } catch (error) {
+            console.warn('Failed to clean up temp file:', error);
+          }
+        }
+        return transcript;
+      }
 
       // Prepare whisper command
       const args = [
@@ -111,8 +131,6 @@ class SpeechToText {
       console.log('Running Whisper transcription:', this.whisperPath, args.join(' '));
       console.log(`Audio size: ${normalizedBuffer.length} bytes`);
       
-      const sampleBytes = normalizedBuffer.length > 44 ? (normalizedBuffer.length - 44) : normalizedBuffer.length;
-      const durationSec = Math.max(0, sampleBytes / (16000 * 2));
       const realtimeFactor = Number(process.env.WHISPER_RT_FACTOR || 3);
       const dynamicTimeoutMs = Math.ceil(durationSec * 1000 * realtimeFactor);
       const baseTimeoutMs = Number(process.env.WHISPER_TIMEOUT_MS || 600000);
@@ -258,6 +276,69 @@ class SpeechToText {
 
     const header = buildHeader(buffer.length);
     return Buffer.concat([header, buffer]);
+  }
+
+  async transcribeWithDeepgram(audioBuffer, durationSec) {
+    if (!this.deepgramKey) {
+      throw new Error('Deepgram API key not configured.');
+    }
+    const model = process.env.DEEPGRAM_MODEL || 'nova-2';
+    const url = `https://api.deepgram.com/v1/listen?model=${encodeURIComponent(model)}&smart_format=true`;
+    const realtimeFactor = Number(process.env.DEEPGRAM_RT_FACTOR || 2);
+    const dynamicTimeoutMs = Math.ceil(durationSec * 1000 * realtimeFactor);
+    const baseTimeoutMs = Number(process.env.DEEPGRAM_TIMEOUT_MS || 600000);
+    const timeoutMs = Math.max(baseTimeoutMs, dynamicTimeoutMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${this.deepgramKey}`,
+          'Content-Type': 'audio/wav'
+        },
+        body: audioBuffer,
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Deepgram request failed: ${response.status} ${response.statusText} ${body}`.trim());
+      }
+
+      const result = await response.json();
+      return result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Deepgram timed out. Check audio input or model setup.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  setActiveProvider(providerName) {
+    if (!providerName || typeof providerName !== 'string') {
+      return false;
+    }
+    const normalized = providerName.toLowerCase();
+    const allowed = new Set(['whisper', 'deepgram']);
+    if (!allowed.has(normalized)) {
+      return false;
+    }
+    this.activeProvider = normalized;
+    return true;
+  }
+
+  setDeepgramKey(apiKey) {
+    if (apiKey && typeof apiKey === 'string') {
+      this.deepgramKey = apiKey;
+      process.env.DEEPGRAM_API_KEY = apiKey;
+      return true;
+    }
+    return false;
   }
 
   // Fallback method using OpenAI Whisper API if local fails

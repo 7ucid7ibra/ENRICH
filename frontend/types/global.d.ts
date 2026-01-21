@@ -14,6 +14,8 @@ export interface ElectronAPI {
   setGeminiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setOpenCodeKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setLLMProvider: (provider: string) => Promise<{ success: boolean; error?: string }>
+  setSTTProvider: (provider: string) => Promise<{ success: boolean; error?: string }>
+  setDeepgramKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setUILanguage: (language: string) => Promise<{ success: boolean; error?: string }>
   enrichText: (text: string, outputLanguage?: string) => Promise<{ success: boolean; result?: TranscriptionResult['enriched']; error?: string }>
   askQuestion: (payload: { transcript: string; question: string }) => Promise<{ success: boolean; answer?: string; error?: string }>

@@ -73,7 +73,9 @@ function setupIpcHandlers(window) {
       return {
         stt: {
           available: sttInitialized,
-          whisper: stt.whisperPath !== null
+          provider: stt.activeProvider,
+          whisper: stt.whisperPath !== null,
+          deepgramConfigured: Boolean(stt.deepgramKey)
         },
         llm: {
           available: llmInitialized,
@@ -185,6 +187,30 @@ function setupIpcHandlers(window) {
   ipcMain.handle('set-llm-provider', async (event, providerName) => {
     try {
       const success = llm.setActiveProvider(providerName);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-stt-provider', async (event, providerName) => {
+    try {
+      if (!providerName) {
+        return { success: false, error: 'STT provider is required' };
+      }
+      const success = stt.setActiveProvider(String(providerName).toLowerCase());
+      if (!success) {
+        return { success: false, error: `Unsupported STT provider: ${providerName}` };
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-deepgram-key', async (event, apiKey) => {
+    try {
+      const success = stt.setDeepgramKey(apiKey);
       return { success };
     } catch (error) {
       return { success: false, error: error.message };
