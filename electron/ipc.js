@@ -103,13 +103,24 @@ function setupIpcHandlers(window) {
     }
   });
 
-  ipcMain.handle('enrich-text', async (event, text) => {
+  ipcMain.handle('enrich-text', async (event, payload) => {
     try {
+      const text = typeof payload === 'string' ? payload : payload?.text;
+      const outputLanguage = typeof payload === 'object' ? payload?.outputLanguage : null;
       if (!text || typeof text !== 'string') {
         throw new Error('Text is required for enrichment');
       }
-      const result = await llm.enrich(text);
+      const result = await llm.enrich(text, null, { outputLanguage });
       return { success: true, result };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-ui-language', async (event, language) => {
+    try {
+      const success = llm.setOutputLanguage(language);
+      return { success };
     } catch (error) {
       return { success: false, error: error.message };
     }

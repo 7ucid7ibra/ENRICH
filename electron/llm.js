@@ -23,6 +23,7 @@ class LLMProcessor {
     this.activeModel = this.defaultModel;
     this.presetsDir = path.join(__dirname, '../presets');
     this.activePreset = 'quick_notes';
+    this.outputLanguage = (process.env.LLM_OUTPUT_LANGUAGE || 'de').toLowerCase();
     this.opencodeModels = [
       'grok-code',
       'big-pickle',
@@ -60,7 +61,7 @@ class LLMProcessor {
     }
   }
 
-  async enrich(text, presetName = null) {
+  async enrich(text, presetName = null, options = {}) {
     const preset = presetName || this.activePreset;
     const presetConfig = this.loadPreset(preset);
     
@@ -69,6 +70,9 @@ class LLMProcessor {
     }
 
     try {
+      if (options.outputLanguage) {
+        this.setOutputLanguage(options.outputLanguage);
+      }
       const maxChars = Number(process.env.LLM_MAX_INPUT_CHARS || 6000);
       const trimmedText = text && text.length > maxChars ? text.slice(0, maxChars) : text;
       if (this.activeProvider === 'ollama') {
@@ -108,7 +112,7 @@ class LLMProcessor {
   }
 
   async enrichWithOllama(text, presetConfig) {
-    const prompt = presetConfig.prompt.replace('{text}', text);
+    const prompt = this.buildPrompt(presetConfig, text);
     
     const response = await fetchWithTimeout(`${this.ollamaUrl}/api/generate`, {
       method: 'POST',
@@ -169,7 +173,7 @@ class LLMProcessor {
       throw new Error('OpenAI API key not configured');
     }
 
-    const prompt = presetConfig.prompt.replace('{text}', text);
+    const prompt = this.buildPrompt(presetConfig, text);
     
     const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -234,7 +238,7 @@ class LLMProcessor {
   }
 
   async enrichWithOpenCode(text, presetConfig) {
-    const prompt = presetConfig.prompt.replace('{text}', text);
+    const prompt = this.buildPrompt(presetConfig, text);
     const messages = [
       {
         role: 'system',
@@ -370,7 +374,7 @@ class LLMProcessor {
       throw new Error('Gemini API key not configured');
     }
 
-    const prompt = presetConfig.prompt.replace('{text}', text);
+    const prompt = this.buildPrompt(presetConfig, text);
     const messages = [
       {
         role: 'system',
@@ -596,6 +600,32 @@ class LLMProcessor {
       return true;
     }
     return false;
+  }
+
+  setOutputLanguage(language) {
+    if (!language || typeof language !== 'string') {
+      return false;
+    }
+    this.outputLanguage = language.toLowerCase();
+    return true;
+  }
+
+  resolveOutputLanguage() {
+    const language = (this.outputLanguage || 'en').toLowerCase();
+    if (language.startsWith('de')) {
+      return 'German';
+    }
+    if (language.startsWith('en')) {
+      return 'English';
+    }
+    return language;
+  }
+
+  buildPrompt(presetConfig, text) {
+    const outputLanguage = this.resolveOutputLanguage();
+    return presetConfig.prompt
+      .replace('{output_language}', outputLanguage)
+      .replace('{text}', text);
   }
 
   setActiveModel(modelName) {
