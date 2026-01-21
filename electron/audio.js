@@ -12,7 +12,7 @@ class AudioRecorder {
     this.audioFormat = 'S16_LE';
   }
 
-  async startRecording() {
+  async startRecording(options = {}) {
     try {
       if (recording) {
         console.warn('Recording already in progress');
@@ -20,6 +20,8 @@ class AudioRecorder {
       }
       console.log('Starting audio recording...');
       audioChunks = [];
+      const onData = options?.onData;
+      const audioType = options?.audioType || 'wav';
       
       recording = record.record({
         sampleRateHertz: this.sampleRate,
@@ -28,14 +30,18 @@ class AudioRecorder {
         recordProgram: process.env.RECORD_PROGRAM || 'sox',
         silence: '1.0',
         channels: this.channels,
-        audioType: 'wav'
+        audioType: audioType
       });
 
-      recording.stream().on('data', (chunk) => {
+      const stream = recording.stream();
+      stream.on('data', (chunk) => {
         audioChunks.push(chunk);
+        if (typeof onData === 'function') {
+          onData(chunk);
+        }
       });
 
-      recording.stream().on('error', (error) => {
+      stream.on('error', (error) => {
         console.error('Recording error:', error);
         throw error;
       });

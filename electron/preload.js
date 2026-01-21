@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTranscriptionRaw: (callback) => {
     ipcRenderer.on('transcription-raw', (event, data) => callback(data));
   },
+
+  // Live transcription
+  onTranscriptionLive: (callback) => {
+    ipcRenderer.on('transcription-live', (event, data) => callback(data));
+  },
   
   // Error handling
   onProcessingError: (callback) => {
@@ -43,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setLLMProvider: (provider) => ipcRenderer.invoke('set-llm-provider', provider),
   setSTTProvider: (provider) => ipcRenderer.invoke('set-stt-provider', provider),
   setDeepgramKey: (apiKey) => ipcRenderer.invoke('set-deepgram-key', apiKey),
+  setAutoEnrich: (enabled) => ipcRenderer.invoke('set-auto-enrich', enabled),
   enrichText: (text, outputLanguage) => ipcRenderer.invoke('enrich-text', { text, outputLanguage }),
   setUILanguage: (language) => ipcRenderer.invoke('set-ui-language', language),
   askQuestion: (payload) => ipcRenderer.invoke('ask-question', payload),

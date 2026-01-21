@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const fetch = require('node-fetch');
+const WebSocket = require('ws');
 
 class SpeechToText {
   constructor() {
@@ -11,6 +12,7 @@ class SpeechToText {
     this.activeProvider = (process.env.STT_PROVIDER || 'whisper').toLowerCase();
     this.deepgramKey = process.env.DEEPGRAM_API_KEY || null;
     this.tempDir = path.join(require('os').tmpdir(), 'voice-intelligence');
+    this.streamState = null;
     
     // Ensure temp directory exists
     if (!fs.existsSync(this.tempDir)) {
@@ -317,6 +319,142 @@ class SpeechToText {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async startStreaming(onUpdate) {
+    if (!this.deepgramKey) {
+      throw new Error('Deepgram API key not configured.');
+    }
+    if (this.streamState?.ws) {
+      return;
+    }
+    const model = process.env.DEEPGRAM_MODEL || 'nova-2';
+    const params = new URLSearchParams({
+      model,
+      smart_format: 'true',
+      punctuate: 'true',
+      interim_results: 'true',
+      endpointing: '300',
+      encoding: 'linear16',
+      sample_rate: '16000',
+      channels: '1'
+    });
+    const url = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+    const ws = new WebSocket(url, {
+      headers: {
+        Authorization: `Token ${this.deepgramKey}`
+      }
+    });
+    this.streamState = {
+      ws,
+      onUpdate,
+      finalTranscript: '',
+      interimTranscript: '',
+      queue: [],
+      open: false,
+      closed: false,
+      closeResolver: null,
+      closeRejecter: null
+    };
+
+    ws.on('open', () => {
+      if (!this.streamState) return;
+      this.streamState.open = true;
+      const queued = this.streamState.queue || [];
+      queued.forEach((chunk) => ws.send(chunk));
+      this.streamState.queue = [];
+    });
+
+    ws.on('message', (data) => {
+      if (!this.streamState) return;
+      let payload;
+      try {
+        payload = JSON.parse(data.toString());
+      } catch (error) {
+        return;
+      }
+      const alt = payload?.channel?.alternatives?.[0];
+      const transcript = alt?.transcript || '';
+      if (!transcript) {
+        return;
+      }
+      if (payload.is_final) {
+        if (this.streamState.finalTranscript) {
+          this.streamState.finalTranscript += ` ${transcript}`;
+        } else {
+          this.streamState.finalTranscript = transcript;
+        }
+        this.streamState.interimTranscript = '';
+      } else {
+        this.streamState.interimTranscript = transcript;
+      }
+      const combined = [this.streamState.finalTranscript, this.streamState.interimTranscript]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (typeof this.streamState.onUpdate === 'function') {
+        this.streamState.onUpdate(combined, payload.is_final);
+      }
+    });
+
+    ws.on('close', () => {
+      if (!this.streamState) return;
+      this.streamState.closed = true;
+      if (typeof this.streamState.closeResolver === 'function') {
+        this.streamState.closeResolver(this.streamState.finalTranscript.trim());
+      }
+      this.streamState = null;
+    });
+
+    ws.on('error', (error) => {
+      if (!this.streamState) return;
+      if (typeof this.streamState.closeRejecter === 'function') {
+        this.streamState.closeRejecter(error);
+      }
+      this.streamState = null;
+    });
+  }
+
+  sendStreamingAudio(chunk) {
+    if (!this.streamState?.ws) {
+      return;
+    }
+    if (!this.streamState.open) {
+      this.streamState.queue.push(chunk);
+      return;
+    }
+    this.streamState.ws.send(chunk);
+  }
+
+  async stopStreaming() {
+    if (!this.streamState?.ws) {
+      return '';
+    }
+    const ws = this.streamState.ws;
+    return new Promise((resolve, reject) => {
+      this.streamState.closeResolver = resolve;
+      this.streamState.closeRejecter = reject;
+      try {
+        ws.send(JSON.stringify({ type: 'CloseStream' }));
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      const safety = setTimeout(() => {
+        if (this.streamState && !this.streamState.closed) {
+          try {
+            ws.close();
+          } catch (closeError) {
+            // ignore
+          }
+        }
+      }, 5000);
+      const finalize = (transcript) => {
+        clearTimeout(safety);
+        resolve(transcript);
+      };
+      this.streamState.closeResolver = finalize;
+    });
   }
 
   setActiveProvider(providerName) {

@@ -64,12 +64,34 @@ async function toggleRecording() {
     mainWindow.webContents.send('recording-status', { isRecording: false });
     
     // Process the audio
-    if (audioBuffer) {
+    if (stt.activeProvider === 'deepgram') {
+      const transcript = await stt.stopStreaming();
+      const autoEnrichEnabled = !ipc.getAutoEnrich || ipc.getAutoEnrich();
+      mainWindow.webContents.send('transcription-raw', { text: transcript, final: !autoEnrichEnabled });
+      if (autoEnrichEnabled) {
+        mainWindow.webContents.send('processing-status', { stage: 'enriching', message: 'Enriching content...' });
+        const enriched = await llm.enrich(transcript);
+        mainWindow.webContents.send('transcription-result', {
+          original: transcript,
+          enriched: enriched
+        });
+      }
+    } else if (audioBuffer) {
       await processAudio(audioBuffer);
     }
   } else {
     console.log('Starting recording...');
-    await audioRecorder.startRecording();
+    if (stt.activeProvider === 'deepgram') {
+      await stt.startStreaming((text) => {
+        mainWindow.webContents.send('transcription-live', { text });
+      });
+      await audioRecorder.startRecording({
+        audioType: 'raw',
+        onData: (chunk) => stt.sendStreamingAudio(chunk)
+      });
+    } else {
+      await audioRecorder.startRecording();
+    }
     isRecording = true;
     
     // Send status to renderer
@@ -85,7 +107,12 @@ async function processAudio(audioBuffer) {
     
     // Transcribe audio
     const transcription = await stt.transcribe(audioBuffer);
+    mainWindow.webContents.send('transcription-raw', { text: transcription, final: !(ipc.getAutoEnrich && ipc.getAutoEnrich()) });
     
+    if (ipc.getAutoEnrich && !ipc.getAutoEnrich()) {
+      return;
+    }
+
     // Send transcription status
     mainWindow.webContents.send('processing-status', { stage: 'enriching', message: 'Enriching content...' });
     
