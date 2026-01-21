@@ -1,5 +1,5 @@
 export interface ElectronAPI {
-  onRecordingStatus: (callback: (status: { isRecording: boolean }) => void) => void
+  onRecordingStatus: (callback: (status: { isRecording: boolean; cancelled?: boolean }) => void) => void
   onProcessingStatus: (callback: (status: { stage: 'transcribing' | 'enriching', message: string }) => void) => void
   onTranscriptionResult: (callback: (result: TranscriptionResult) => void) => void
   onTranscriptionRaw: (callback: (data: { text: string; final?: boolean }) => void) => void
@@ -18,6 +18,10 @@ export interface ElectronAPI {
   setSTTProvider: (provider: string) => Promise<{ success: boolean; error?: string }>
   setDeepgramKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setAutoEnrich: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
+  ttsSpeak: (payload: { text: string; language?: string; includeData?: boolean }) => Promise<{ success: boolean; path?: string; data?: string | null; error?: string }>
+  setTtsVoice: (payload: { language: string; voiceId: string }) => Promise<{ success: boolean; error?: string }>
+  cancelRecording: () => Promise<{ success: boolean; error?: string }>
+  cancelAskQuestion: () => Promise<{ success: boolean; error?: string }>
   setUILanguage: (language: string) => Promise<{ success: boolean; error?: string }>
   enrichText: (text: string, outputLanguage?: string) => Promise<{ success: boolean; result?: TranscriptionResult['enriched']; error?: string }>
   askQuestion: (payload: { transcript: string; question: string }) => Promise<{ success: boolean; answer?: string; error?: string }>

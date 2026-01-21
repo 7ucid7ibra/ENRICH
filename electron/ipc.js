@@ -1,9 +1,12 @@
 const { ipcMain, systemPreferences } = require('electron');
+const fs = require('fs');
 const audioRecorder = require('./audio');
 const stt = require('./stt');
 const llm = require('./llm');
+const tts = require('./tts');
 
 let mainWindow;
+let currentQuestionAbort = null;
 let autoEnrich = false;
 let deepgramStreaming = false;
 
@@ -46,6 +49,7 @@ function setupIpcHandlers(window) {
         });
         await audioRecorder.startRecording({
           audioType: 'raw',
+          silence: '0',
           onData: (chunk) => stt.sendStreamingAudio(chunk)
         });
       } else {
@@ -90,6 +94,23 @@ function setupIpcHandlers(window) {
     }
   });
 
+  ipcMain.handle('cancel-recording', async () => {
+    try {
+      if (!mainWindow) {
+        throw new Error('Main window not ready');
+      }
+      await audioRecorder.stopRecording();
+      if (stt.activeProvider === 'deepgram' && deepgramStreaming) {
+        deepgramStreaming = false;
+        await stt.stopStreaming();
+      }
+      safeSend('recording-status', { isRecording: false, cancelled: true });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // Get available models and presets
   ipcMain.handle('get-available-models', async () => {
     try {
@@ -100,6 +121,7 @@ function setupIpcHandlers(window) {
         llm.setActiveModel(providerModels[0]);
       }
       const presets = llm.getAvailablePresets();
+      const voices = tts.resolveVoices();
       
       return {
         stt: {
@@ -107,6 +129,17 @@ function setupIpcHandlers(window) {
           provider: stt.activeProvider,
           whisper: stt.whisperPath !== null,
           deepgramConfigured: Boolean(stt.deepgramKey)
+        },
+        tts: {
+          voices: voices.map((voice) => ({
+            voice_id: voice.voice_id,
+            name: voice.name,
+            language: voice.language
+          })),
+          selected: {
+            en: tts.getVoiceForLanguage('en'),
+            de: tts.getVoiceForLanguage('de')
+          }
         },
         llm: {
           available: llmInitialized,
@@ -163,8 +196,29 @@ function setupIpcHandlers(window) {
     try {
       const transcript = payload?.transcript || '';
       const question = payload?.question || '';
-      const answer = await llm.askQuestion(transcript, question);
+      if (currentQuestionAbort) {
+        currentQuestionAbort.abort();
+      }
+      const controller = new AbortController();
+      currentQuestionAbort = controller;
+      const answer = await llm.askQuestion(transcript, question, { signal: controller.signal });
+      currentQuestionAbort = null;
       return { success: true, answer };
+    } catch (error) {
+      if (error?.name === 'AbortError' || error?.type === 'aborted') {
+        return { success: false, error: 'Request cancelled' };
+      }
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('cancel-ask-question', async () => {
+    try {
+      if (currentQuestionAbort) {
+        currentQuestionAbort.abort();
+        currentQuestionAbort = null;
+      }
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -219,6 +273,39 @@ function setupIpcHandlers(window) {
     try {
       const success = llm.setActiveProvider(providerName);
       return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('tts-speak', async (event, payload) => {
+    try {
+      const text = payload?.text;
+      const language = payload?.language || 'en';
+      const includeData = Boolean(payload?.includeData);
+      if (!text || typeof text !== 'string') {
+        return { success: false, error: 'Text is required for TTS.' };
+      }
+      const audioPath = await tts.synthesize(text, { language });
+      let data = null;
+      if (includeData) {
+        data = fs.readFileSync(audioPath).toString('base64');
+      }
+      return { success: true, path: audioPath, data };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-tts-voice', async (event, payload) => {
+    try {
+      const language = payload?.language;
+      const voiceId = payload?.voiceId;
+      const success = tts.setVoiceForLanguage(language, voiceId);
+      if (!success) {
+        return { success: false, error: 'Failed to set TTS voice.' };
+      }
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
