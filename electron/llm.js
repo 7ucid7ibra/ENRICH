@@ -2,13 +2,21 @@ const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
 
-const DEFAULT_LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 120000);
+const DEFAULT_LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 600000);
 
 const fetchWithTimeout = async (url, options = {}, timeoutMs = DEFAULT_LLM_TIMEOUT_MS) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { signal, ...rest } = options;
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...rest, signal: controller.signal });
     return response;
   } finally {
     clearTimeout(timer);
@@ -101,14 +109,14 @@ class LLMProcessor {
     }
   }
 
-  async askQuestion(transcriptText, question) {
+  async askQuestion(transcriptText, question, options = {}) {
     if (!question || typeof question !== 'string') {
       throw new Error('Question is required');
     }
 
     const systemPrompt = 'You answer questions about the provided transcript. Be concise and accurate.';
     const userPrompt = `Transcript:\n${transcriptText || '(empty)'}\n\nQuestion:\n${question}\n\nAnswer:`;
-    return this.generateText(systemPrompt, userPrompt);
+    return this.generateText(systemPrompt, userPrompt, options);
   }
 
   async enrichWithOllama(text, presetConfig) {
@@ -141,7 +149,7 @@ class LLMProcessor {
     return this.parseEnrichedOutput(enrichedText, presetConfig);
   }
 
-  async generateWithOllama(systemPrompt, userPrompt) {
+  async generateWithOllama(systemPrompt, userPrompt, options = {}) {
     const prompt = `${systemPrompt}\n\n${userPrompt}`;
     const response = await fetchWithTimeout(`${this.ollamaUrl}/api/generate`, {
       method: 'POST',
@@ -156,7 +164,8 @@ class LLMProcessor {
           temperature: 0.2,
           top_p: 0.9
         }
-      })
+      }),
+      signal: options.signal
     });
 
     if (!response.ok) {
@@ -207,12 +216,12 @@ class LLMProcessor {
     return this.parseEnrichedOutput(enrichedText, presetConfig);
   }
 
-  async generateWithOpenAI(systemPrompt, userPrompt) {
+  async generateWithOpenAI(systemPrompt, userPrompt, options = {}) {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OpenAI API key not configured');
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -225,7 +234,8 @@ class LLMProcessor {
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.2
-      })
+      }),
+      signal: options.signal
     });
 
     if (!response.ok) {
@@ -313,7 +323,7 @@ class LLMProcessor {
     return this.parseEnrichedOutput(enrichedText, presetConfig);
   }
 
-  async generateWithOpenCode(systemPrompt, userPrompt) {
+  async generateWithOpenCode(systemPrompt, userPrompt, options = {}) {
     const messages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -350,10 +360,11 @@ class LLMProcessor {
       payload = { model, messages };
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options.signal
     });
 
     if (!response.ok) {
@@ -421,7 +432,7 @@ class LLMProcessor {
     return this.parseEnrichedOutput(enrichedText, presetConfig);
   }
 
-  async generateWithGemini(systemPrompt, userPrompt) {
+  async generateWithGemini(systemPrompt, userPrompt, options = {}) {
     if (!process.env.GEMINI_API_KEY) {
       throw new Error('Gemini API key not configured');
     }
@@ -443,7 +454,8 @@ class LLMProcessor {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options.signal
     });
 
     if (!response.ok) {
@@ -455,21 +467,21 @@ class LLMProcessor {
     return result.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
 
-  async generateText(systemPrompt, userPrompt) {
+  async generateText(systemPrompt, userPrompt, options = {}) {
     if (this.activeProvider === 'ollama') {
       if (!(await this.ensureOllamaRunning(true))) {
         throw new Error('Ollama is not reachable. Start it with "ollama serve".');
       }
-      return this.generateWithOllama(systemPrompt, userPrompt);
+      return this.generateWithOllama(systemPrompt, userPrompt, options);
     }
     if (this.activeProvider === 'openai') {
-      return this.generateWithOpenAI(systemPrompt, userPrompt);
+      return this.generateWithOpenAI(systemPrompt, userPrompt, options);
     }
     if (this.activeProvider === 'gemini') {
-      return this.generateWithGemini(systemPrompt, userPrompt);
+      return this.generateWithGemini(systemPrompt, userPrompt, options);
     }
     if (this.activeProvider === 'opencode') {
-      return this.generateWithOpenCode(systemPrompt, userPrompt);
+      return this.generateWithOpenCode(systemPrompt, userPrompt, options);
     }
     throw new Error(`Unsupported provider: ${this.activeProvider}`);
   }

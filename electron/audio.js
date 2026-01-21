@@ -4,6 +4,7 @@ const path = require('path');
 
 let recording = null;
 let audioChunks = [];
+let stopping = false;
 
 class AudioRecorder {
   constructor() {
@@ -19,16 +20,18 @@ class AudioRecorder {
         return false;
       }
       console.log('Starting audio recording...');
+      stopping = false;
       audioChunks = [];
       const onData = options?.onData;
       const audioType = options?.audioType || 'wav';
+      const silence = options?.silence;
       
       recording = record.record({
         sampleRateHertz: this.sampleRate,
         threshold: 0,
         verbose: false,
         recordProgram: process.env.RECORD_PROGRAM || 'sox',
-        silence: '1.0',
+        silence: silence !== undefined ? silence : '1.0',
         channels: this.channels,
         audioType: audioType
       });
@@ -41,10 +44,18 @@ class AudioRecorder {
         }
       });
 
-      stream.on('error', (error) => {
+      const handleError = (error) => {
+        if (stopping) {
+          console.warn('Recording stopped with error:', error?.message || error);
+          return;
+        }
         console.error('Recording error:', error);
-        throw error;
-      });
+      };
+
+      stream.on('error', handleError);
+      recording.on?.('error', handleError);
+      const proc = recording.process || recording.childProcess;
+      proc?.on?.('error', handleError);
 
       console.log('Recording started successfully');
       return true;
@@ -62,6 +73,7 @@ class AudioRecorder {
       }
 
       console.log('Stopping recording...');
+      stopping = true;
 
       const stream = recording.stream();
       let resolved = false;
@@ -71,6 +83,7 @@ class AudioRecorder {
 
         const audioBuffer = Buffer.concat(audioChunks);
         recording = null;
+        stopping = false;
         audioChunks = [];
         console.log(`Recording stopped. Audio size: ${audioBuffer.length} bytes`);
         resolve(audioBuffer);

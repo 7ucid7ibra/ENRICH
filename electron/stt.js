@@ -350,6 +350,7 @@ class SpeechToText {
       onUpdate,
       finalTranscript: '',
       interimTranscript: '',
+      lastCombined: '',
       queue: [],
       open: false,
       closed: false,
@@ -392,6 +393,7 @@ class SpeechToText {
         .filter(Boolean)
         .join(' ')
         .trim();
+      this.streamState.lastCombined = combined;
       if (typeof this.streamState.onUpdate === 'function') {
         this.streamState.onUpdate(combined, payload.is_final);
       }
@@ -401,7 +403,8 @@ class SpeechToText {
       if (!this.streamState) return;
       this.streamState.closed = true;
       if (typeof this.streamState.closeResolver === 'function') {
-        this.streamState.closeResolver(this.streamState.finalTranscript.trim());
+        const finalText = (this.streamState.finalTranscript || this.streamState.lastCombined || '').trim();
+        this.streamState.closeResolver(finalText);
       }
       this.streamState = null;
     });
@@ -451,7 +454,7 @@ class SpeechToText {
       }, 5000);
       const finalize = (transcript) => {
         clearTimeout(safety);
-        resolve(transcript);
+        resolve(transcript || (this.streamState?.lastCombined || ''));
       };
       this.streamState.closeResolver = finalize;
     });

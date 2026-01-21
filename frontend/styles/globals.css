@@ -66,3 +66,18 @@ a {
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+@keyframes ttsPulse {
+  0%, 100% {
+    opacity: 0.75;
+    color: #cbd5e1;
+  }
+  50% {
+    opacity: 1;
+    color: #f5c542;
+  }
+}
+
+.tts-pulse {
+  animation: ttsPulse 1.6s ease-in-out infinite;
+}

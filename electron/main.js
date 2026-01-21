@@ -87,6 +87,7 @@ async function toggleRecording() {
       });
       await audioRecorder.startRecording({
         audioType: 'raw',
+        silence: '0',
         onData: (chunk) => stt.sendStreamingAudio(chunk)
       });
     } else {
