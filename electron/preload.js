@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Get available models
   getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
+  getHistory: () => ipcRenderer.invoke('get-history'),
+  saveHistory: (history) => ipcRenderer.invoke('save-history', history),
   
   // Set active preset
   setActivePreset: (preset) => ipcRenderer.invoke('set-active-preset', preset),

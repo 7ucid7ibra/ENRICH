@@ -1,5 +1,6 @@
-const { ipcMain, systemPreferences } = require('electron');
+const { app, ipcMain, systemPreferences } = require('electron');
 const fs = require('fs');
+const path = require('path');
 const audioRecorder = require('./audio');
 const stt = require('./stt');
 const llm = require('./llm');
@@ -9,6 +10,7 @@ let mainWindow;
 let currentQuestionAbort = null;
 let autoEnrich = false;
 let deepgramStreaming = false;
+const historyPath = path.join(app.getPath('userData'), 'everlast-history.json');
 
 function safeSend(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -339,6 +341,30 @@ function setupIpcHandlers(window) {
     try {
       const success = stt.setDeepgramKey(apiKey);
       return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('get-history', async () => {
+    try {
+      if (!fs.existsSync(historyPath)) {
+        return { success: true, history: [] };
+      }
+      const raw = fs.readFileSync(historyPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return { success: true, history: Array.isArray(parsed) ? parsed : [] };
+    } catch (error) {
+      return { success: false, error: error.message, history: [] };
+    }
+  });
+
+  ipcMain.handle('save-history', async (event, history) => {
+    try {
+      const data = Array.isArray(history) ? history : [];
+      fs.mkdirSync(path.dirname(historyPath), { recursive: true });
+      fs.writeFileSync(historyPath, JSON.stringify(data, null, 2), 'utf-8');
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
