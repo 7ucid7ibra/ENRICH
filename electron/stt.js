@@ -111,7 +111,12 @@ class SpeechToText {
       console.log('Running Whisper transcription:', this.whisperPath, args.join(' '));
       console.log(`Audio size: ${normalizedBuffer.length} bytes`);
       
-      const timeoutMs = Number(process.env.WHISPER_TIMEOUT_MS || 120000);
+      const sampleBytes = normalizedBuffer.length > 44 ? (normalizedBuffer.length - 44) : normalizedBuffer.length;
+      const durationSec = Math.max(0, sampleBytes / (16000 * 2));
+      const realtimeFactor = Number(process.env.WHISPER_RT_FACTOR || 3);
+      const dynamicTimeoutMs = Math.ceil(durationSec * 1000 * realtimeFactor);
+      const baseTimeoutMs = Number(process.env.WHISPER_TIMEOUT_MS || 600000);
+      const timeoutMs = Math.max(baseTimeoutMs, dynamicTimeoutMs);
       return new Promise((resolve, reject) => {
         const whisper = spawn(this.whisperPath, args);
         let output = '';

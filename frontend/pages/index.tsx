@@ -62,6 +62,13 @@ const translations = {
     transcribing: 'Transkribiere Audio...',
     enriching_progress: 'Mit KI anreichern...',
     info: 'Information',
+    onboardingTitle: 'Willkommen',
+    onboardingDontShow: 'Nicht wieder anzeigen',
+    onboardingStart: 'Los geht’s',
+    onboardingFeaturesTitle: 'Funktionen',
+    onboardingFeatureQa: 'Q&A: Fragen zur Transkription stellen und Antworten erhalten.',
+    onboardingFeatureHistory: 'Verlauf: Frühere Transkriptionen und Ergebnisse wieder öffnen.',
+    onboardingFeaturePresets: 'Presets: Unterschiedliche Anreicherungs-Profile wählen.',
     shortcuts: 'Shortcuts',
     close: 'Schließen',
     howToUse: 'Anleitung',
@@ -107,6 +114,13 @@ const translations = {
     transcription: 'Transcription',
     settings: 'Settings',
     info: 'Information',
+    onboardingTitle: 'Welcome',
+    onboardingDontShow: "Don't show again",
+    onboardingStart: 'Get started',
+    onboardingFeaturesTitle: 'Features',
+    onboardingFeatureQa: 'Q&A: Ask questions about the transcript and get answers.',
+    onboardingFeatureHistory: 'History: Reopen earlier transcriptions and results.',
+    onboardingFeaturePresets: 'Presets: Choose different enrichment profiles.',
     shortcuts: 'Shortcuts',
     close: 'Close',
     howToUse: 'Guide',
@@ -136,6 +150,8 @@ const Home: NextPage = () => {
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [skipOnboarding, setSkipOnboarding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
@@ -157,6 +173,7 @@ const Home: NextPage = () => {
   // Refs for scrolling
   const resultsRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
   const tRef = useRef(t)
   const isProcessingRef = useRef(isProcessing)
   const lastResultRef = useRef(lastResult)
@@ -166,9 +183,29 @@ const Home: NextPage = () => {
   }, [t])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI) {
+      return
+    }
+    window.electronAPI.setUILanguage(language)
+  }, [language])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const shouldHide = window.localStorage.getItem('everlast_onboarding_hide') === '1'
+    setShowOnboarding(!shouldHide)
+    setSkipOnboarding(shouldHide)
+  }, [])
+
+  useEffect(() => {
     isProcessingRef.current = isProcessing
     lastResultRef.current = lastResult
   }, [isProcessing, lastResult])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [chatMessages.length, chatBusy])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.electronAPI) {
@@ -325,7 +362,7 @@ const Home: NextPage = () => {
     try {
       setIsProcessing(true)
       setProcessingStatus({ stage: 'enriching', message: t.enriching_progress })
-      const response = await window.electronAPI?.enrichText(rawTranscription)
+      const response = await window.electronAPI?.enrichText(rawTranscription, language)
       if (response?.success && response.result) {
         const manualResult = { original: rawTranscription, enriched: response.result }
         setLastResult(manualResult)
@@ -396,6 +433,17 @@ const Home: NextPage = () => {
     } catch (error) {
       console.error('Failed to copy code', error)
     }
+  }
+
+  const closeOnboarding = () => {
+    if (typeof window !== 'undefined') {
+      if (skipOnboarding) {
+        window.localStorage.setItem('everlast_onboarding_hide', '1')
+      } else {
+        window.localStorage.removeItem('everlast_onboarding_hide')
+      }
+    }
+    setShowOnboarding(false)
   }
 
   const buildHistoryKey = (item: { transcription: string; enriched: TranscriptionResult['enriched'] }) => {
@@ -630,6 +678,7 @@ const Home: NextPage = () => {
                     </div>
                   ))
                 )}
+                <div ref={chatEndRef} />
               </div>
 
               <div className="relative group">
@@ -664,6 +713,17 @@ const Home: NextPage = () => {
                 exit={{ opacity: 0, x: 20 }}
                 className="flex flex-col gap-6"
               >
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-[0.3em]">Enriched Results</h3>
+                  <button
+                    onClick={() => copyToClipboard(formatFullResult(lastResult))}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/5 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500 hover:text-everlast-gold hover:border-everlast-gold/30 hover:bg-everlast-gold/[0.02] transition-all"
+                  >
+                    {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    <span>{copied ? t.copied : t.copyAll}</span>
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 gap-6">
                   {lastResult.enriched?.structured?.summary && (
                     <ResultCard title={t.summary} delay={0.1}>
@@ -673,7 +733,12 @@ const Home: NextPage = () => {
                     </ResultCard>
                   )}
 
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <div className={clsx(
+                    "grid gap-6",
+                    (lastResult.enriched?.structured?.bullet_points?.length && lastResult.enriched?.structured?.action_items?.length)
+                      ? "grid-cols-1 xl:grid-cols-2"
+                      : "grid-cols-1"
+                  )}>
                     {(lastResult.enriched?.structured?.bullet_points?.length || 0) > 0 && (
                       <ResultCard title={t.keyPoints} delay={0.2}>
                         <ul className="space-y-3">
@@ -702,16 +767,6 @@ const Home: NextPage = () => {
                       </ResultCard>
                     )}
                   </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t border-white/5">
-                  <button
-                    onClick={() => copyToClipboard(formatFullResult(lastResult))}
-                    className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600 hover:text-everlast-gold transition-all"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copied ? t.copied : t.copyAll}</span>
-                  </button>
                 </div>
               </motion.div>
             ) : (
@@ -870,6 +925,90 @@ const Home: NextPage = () => {
           </div>
         )}
       </HistoryDrawer>
+      {/* Onboarding Modal */}
+      <AnimatePresence>
+        {showOnboarding && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeOnboarding}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 1 }}
+              className="relative w-full max-w-lg bg-everlast-surface border border-white/10 rounded-2xl p-8 shadow-2xl z-[111]"
+            >
+              <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-everlast-secondary/10 rounded-lg">
+                    <Info className="w-6 h-6 text-everlast-secondary" />
+                  </div>
+                  <h2 className="text-2xl font-bold tracking-tight text-white">{t.onboardingTitle}</h2>
+                </div>
+                <button onClick={closeOnboarding} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.howToUse}</h3>
+                  <ul className="space-y-3">
+                    {[t.step1, t.step2, t.step3].map((step, i) => (
+                      <li key={i} className="flex gap-4 items-start text-gray-300">
+                        <span className="flex-shrink-0 w-6 h-6 bg-white/5 border border-white/10 rounded-md flex items-center justify-center text-xs font-bold text-everlast-secondary">{i + 1}</span>
+                        <p className="text-sm leading-relaxed">{step}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-white/5">
+                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.onboardingFeaturesTitle}</h3>
+                  <ul className="space-y-3 text-sm text-gray-300">
+                    {[t.onboardingFeatureQa, t.onboardingFeatureHistory, t.onboardingFeaturePresets].map((feature, i) => (
+                      <li key={i} className="flex gap-3 items-start">
+                        <span className="mt-1 h-2 w-2 rounded-full bg-everlast-secondary/60" />
+                        <p className="leading-relaxed">{feature}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-white/5">
+                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.shortcuts}</h3>
+                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl border border-white/5">
+                    <span className="text-sm text-gray-300">{t.shortcutRecord}</span>
+                    <kbd className="px-3 py-1 bg-black rounded-md border border-white/20 text-xs font-mono text-everlast-secondary shadow-sm tracking-tighter">⌘ + Shift + Space</kbd>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 flex items-center justify-between gap-4">
+                <label className="flex items-center gap-3 text-xs uppercase tracking-widest text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={skipOnboarding}
+                    onChange={(e) => setSkipOnboarding(e.target.checked)}
+                    className="h-4 w-4 rounded border-white/20 bg-black/50 text-everlast-gold focus:ring-0"
+                  />
+                  {t.onboardingDontShow}
+                </label>
+                <button
+                  onClick={closeOnboarding}
+                  className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold uppercase tracking-widest text-white transition-all"
+                >
+                  {t.onboardingStart}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Info Modal */}
       <AnimatePresence>
         {showInfo && (
