@@ -4,7 +4,17 @@ const os = require('os');
 const { spawn } = require('child_process');
 const { spawnSync } = require('child_process');
 
-const voicesPath = process.env.PIPER_VOICES_PATH || path.join(__dirname, '..', 'Reader', 'voices.json');
+const resolveBundledPiperRoot = () => {
+  const resourcesPath = process.resourcesPath || '';
+  const packagedRoot = resourcesPath ? path.join(resourcesPath, 'piper') : null;
+  if (packagedRoot && fs.existsSync(packagedRoot)) {
+    return packagedRoot;
+  }
+  return path.join(__dirname, '..', 'assets', 'piper');
+};
+
+const bundledPiperRoot = resolveBundledPiperRoot();
+const voicesPath = process.env.PIPER_VOICES_PATH || path.join(bundledPiperRoot, 'voices.json');
 const defaultLangMap = {
   de: 'de',
   en: 'en'
@@ -59,21 +69,27 @@ const resolvePiperCmd = () => {
   if (process.env.PIPER_PATH && fs.existsSync(process.env.PIPER_PATH)) {
     return process.env.PIPER_PATH;
   }
-  const readerRoot = path.join(__dirname, '..', 'Reader');
-  const venvBin = process.platform === 'win32'
-    ? path.join(readerRoot, '.venv', 'Scripts', 'piper.exe')
-    : path.join(readerRoot, '.venv', 'bin', 'piper');
-  if (fs.existsSync(venvBin)) {
-    return venvBin;
+  const candidates = process.platform === 'win32'
+    ? [
+        path.join(bundledPiperRoot, 'piper.exe'),
+        path.join(bundledPiperRoot, 'bin', 'piper.exe')
+      ]
+    : [
+        path.join(bundledPiperRoot, 'piper'),
+        path.join(bundledPiperRoot, 'bin', 'piper')
+      ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
   return 'piper';
 };
 
 const resolvePiperLibDir = (piperCmd) => {
   const cmdPath = path.resolve(piperCmd);
-  const readerRoot = path.join(__dirname, '..', 'Reader');
   const candidates = [
-    path.join(readerRoot, '.venv', 'piper', 'lib'),
+    path.join(bundledPiperRoot, 'lib'),
     path.join(path.dirname(cmdPath), 'lib'),
     path.join(path.dirname(path.dirname(cmdPath)), 'lib')
   ];
@@ -146,7 +162,7 @@ const synthesize = async (text, options = {}) => {
 
     proc.on('error', (error) => {
       if (error.code === 'ENOENT') {
-        reject(new Error('Piper not found. Run Reader/install.sh or set PIPER_PATH.'));
+        reject(new Error('Piper not found. Bundle it in assets/piper or set PIPER_PATH.'));
         return;
       }
       reject(new Error(`Failed to run Piper: ${error.message}`));

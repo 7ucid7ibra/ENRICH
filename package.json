@@ -35,6 +35,20 @@
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "whisper.cpp/build/bin/whisper-cli",
+        "to": "whisper/whisper-cli"
+      },
+      {
+        "from": "whisper.cpp/models/ggml-small.bin",
+        "to": "whisper/models/ggml-small.bin"
+      },
+      {
+        "from": "assets/piper",
+        "to": "piper"
+      }
+    ],
     "files": [
       "electron/**/*",
       "frontend/out/**/*",

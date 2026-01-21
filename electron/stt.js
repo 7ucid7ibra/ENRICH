@@ -24,17 +24,20 @@ class SpeechToText {
     if (this.activeProvider === 'deepgram') {
       return Boolean(this.deepgramKey);
     }
+    const resourcesPath = process.resourcesPath || '';
+    const bundledWhisperRoot = resourcesPath ? path.join(resourcesPath, 'whisper') : null;
     // Try to find whisper.cpp installation
     const envWhisperPath = process.env.WHISPER_PATH;
     const possiblePaths = [
       '/usr/local/bin/whisper',
       '/opt/homebrew/bin/whisper',
       path.join(process.env.HOME || '', '.local/bin/whisper'),
+      bundledWhisperRoot ? path.join(bundledWhisperRoot, 'whisper-cli') : null,
       './whisper.cpp/main',
       './whisper.cpp/whisper',
       './whisper.cpp/build/bin/whisper-cli',
       './whisper.cpp/build/bin/main'
-    ];
+    ].filter(Boolean);
 
     if (envWhisperPath && fs.existsSync(envWhisperPath)) {
       this.whisperPath = envWhisperPath;
@@ -60,6 +63,7 @@ class SpeechToText {
     const envModelPath = process.env.WHISPER_MODEL_PATH;
     const possibleModelPaths = [
       envModelPath,
+      bundledWhisperRoot ? path.join(bundledWhisperRoot, 'models', modelFile) : null,
       path.join(process.env.HOME || '', '.whisper', modelFile),
       path.join(process.env.HOME || '', 'whisper.cpp', 'models', modelFile),
       path.join(process.cwd(), 'whisper.cpp', 'models', modelFile)
