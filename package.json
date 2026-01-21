@@ -1,5 +1,5 @@
 {
-  "name": "voice-intelligence-app",
+  "name": "enrich",
   "version": "1.0.0",
   "description": "Voice Intelligence Desktop App with local AI processing",
   "main": "electron/main.js",
@@ -30,8 +30,8 @@
     "ws": "^8.18.0"
   },
   "build": {
-    "appId": "com.voiceintelligence.app",
-    "productName": "Voice Intelligence",
+    "appId": "com.enrich.app",
+    "productName": "ENRICH",
     "directories": {
       "output": "dist"
     },
