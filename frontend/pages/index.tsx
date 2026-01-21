@@ -147,7 +147,7 @@ const translations = {
     onboardingFeatureLive: 'Live Transcription: Real-time transcription with Deepgram.',
     onboardingFeatureLanguage: 'Language: Toggle the UI between German and English.',
     onboardingFeatureTts: 'Text-to-speech: Listen to summaries and answers.',
-    ttsVoice: 'TTS Stimme',
+    ttsVoice: 'TTS Voice',
     shortcuts: 'Shortcuts',
     close: 'Close',
     howToUse: 'Guide',
@@ -167,7 +167,6 @@ const translations = {
     autoEnrichLabel: 'Auto Enrich',
     autoEnrichManual: 'Manual',
     autoEnrichAuto: 'Auto',
-    ttsVoice: 'TTS Stimme',
     settingsStt: 'STT & TTS',
     settingsBehavior: 'Behavior',
     settingsLlm: 'AI Provider',
@@ -1169,7 +1168,7 @@ const Home: NextPage = () => {
                     {(lastResult.enriched?.structured?.bullet_points?.length || 0) > 0 && (
                       <ResultCard title={t.keyPoints} delay={0.2}>
                         <ul className="space-y-3">
-                          {lastResult.enriched.structured.bullet_points.map((p: string, i: number) => (
+                          {lastResult.enriched.structured.bullet_points?.map((p: string, i: number) => (
                             <li key={i} className="flex gap-3 text-sm text-gray-400">
                               <span className="text-everlast-gold mt-1">•</span>
                               <span>{p}</span>
@@ -1182,7 +1181,7 @@ const Home: NextPage = () => {
                     {(lastResult.enriched?.structured?.action_items?.length || 0) > 0 && (
                       <ResultCard title={t.actionItems} delay={0.3} className="border-l-2 border-everlast-gold/30 bg-everlast-gold/[0.02]">
                         <ul className="space-y-3">
-                          {lastResult.enriched.structured.action_items.map((item: string, i: number) => (
+                          {lastResult.enriched.structured.action_items?.map((item: string, i: number) => (
                             <li key={i} className="flex gap-3 items-start group">
                               <div className="mt-1 w-4 h-4 rounded border border-everlast-gold/30 flex-shrink-0 flex items-center justify-center group-hover:border-everlast-gold/60 transition-colors">
                                 <Check className="w-2.5 h-2.5 text-everlast-gold opacity-0 group-hover:opacity-100" />

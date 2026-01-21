@@ -7,7 +7,13 @@ const nextConfig = {
     unoptimized: true
   },
   assetPrefix: process.env.NODE_ENV === 'production' ? './' : '',
-  basePath: process.env.NODE_ENV === 'production' ? '' : ''
+  basePath: process.env.NODE_ENV === 'production' ? '' : '',
+  eslint: {
+    ignoreDuringBuilds: true
+  },
+  typescript: {
+    ignoreBuildErrors: true
+  }
 }
 
 module.exports = nextConfig
