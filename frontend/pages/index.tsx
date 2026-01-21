@@ -69,6 +69,10 @@ const translations = {
     onboardingFeatureQa: 'Q&A: Fragen zur Transkription stellen und Antworten erhalten.',
     onboardingFeatureHistory: 'Verlauf: Frühere Transkriptionen und Ergebnisse wieder öffnen.',
     onboardingFeaturePresets: 'Presets: Unterschiedliche Anreicherungs-Profile wählen.',
+    onboardingFeatureAutoEnrich: 'Auto-Anreichern: Automatisch nach der Transkription anreichern oder manuell starten.',
+    onboardingFeatureSttProvider: 'STT-Provider: Whisper lokal oder Deepgram (Cloud) für schnelleres Transkribieren.',
+    onboardingFeatureLive: 'Live-Transkription: Echtzeit-Transkription mit Deepgram.',
+    onboardingFeatureLanguage: 'Sprache: UI zwischen Deutsch und Englisch umschalten.',
     shortcuts: 'Shortcuts',
     close: 'Schließen',
     howToUse: 'Anleitung',
@@ -82,6 +86,9 @@ const translations = {
     qaClear: 'Leeren',
     qaAsk: 'Fragen',
     qaAsking: 'Frage läuft...',
+    autoEnrichLabel: 'Auto-Anreichern',
+    autoEnrichManual: 'Manuell',
+    autoEnrichAuto: 'Auto',
     sttProvider: 'Sprache-zu-Text',
     sttWhisper: 'whisper',
     sttDeepgram: 'deepgram',
@@ -125,6 +132,10 @@ const translations = {
     onboardingFeatureQa: 'Q&A: Ask questions about the transcript and get answers.',
     onboardingFeatureHistory: 'History: Reopen earlier transcriptions and results.',
     onboardingFeaturePresets: 'Presets: Choose different enrichment profiles.',
+    onboardingFeatureAutoEnrich: 'Auto Enrich: Run enrichment automatically after transcription or start manually.',
+    onboardingFeatureSttProvider: 'STT Provider: Whisper local or Deepgram (cloud) for faster transcription.',
+    onboardingFeatureLive: 'Live Transcription: Real-time transcription with Deepgram.',
+    onboardingFeatureLanguage: 'Language: Toggle the UI between German and English.',
     shortcuts: 'Shortcuts',
     close: 'Close',
     howToUse: 'Guide',
@@ -138,6 +149,9 @@ const translations = {
     qaClear: 'Clear',
     qaAsk: 'Ask',
     qaAsking: 'Asking...',
+    autoEnrichLabel: 'Auto Enrich',
+    autoEnrichManual: 'Manual',
+    autoEnrichAuto: 'Auto',
     sttProvider: 'Speech-to-Text',
     sttWhisper: 'whisper',
     sttDeepgram: 'deepgram',
@@ -174,6 +188,7 @@ const Home: NextPage = () => {
   const [activeOllamaModel, setActiveOllamaModel] = useState<string | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('opencode')
   const [sttProvider, setSttProvider] = useState<string>('whisper')
+  const [autoEnrich, setAutoEnrich] = useState(false)
   const [providerModels, setProviderModels] = useState<string[]>([])
   const [ollamaUrl, setOllamaUrl] = useState('')
   const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '', deepgram: '' })
@@ -206,6 +221,23 @@ const Home: NextPage = () => {
     setShowOnboarding(!shouldHide)
     setSkipOnboarding(shouldHide)
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const stored = window.localStorage.getItem('everlast_auto_enrich') === '1'
+    setAutoEnrich(stored)
+    window.electronAPI?.setAutoEnrich(stored)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem('everlast_auto_enrich', autoEnrich ? '1' : '0')
+    window.electronAPI?.setAutoEnrich(autoEnrich)
+  }, [autoEnrich])
 
   useEffect(() => {
     isProcessingRef.current = isProcessing
@@ -267,12 +299,23 @@ const Home: NextPage = () => {
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
     }
 
-    const onTranscriptionRaw = (data: { text: string }) => {
+    const onTranscriptionRaw = (data: { text: string; final?: boolean }) => {
       setRawTranscription(data.text || '')
+      if (data.final) {
+        setIsProcessing(false)
+        setProcessingStatus(null)
+      }
       if (!isProcessingRef.current && !lastResultRef.current) {
         setCurrentStep('transcribe')
         // Auto scroll to editor
         setTimeout(() => editorRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+      }
+    }
+
+    const onTranscriptionLive = (data: { text: string }) => {
+      setRawTranscription(data.text || '')
+      if (!isProcessingRef.current) {
+        setCurrentStep('transcribe')
       }
     }
 
@@ -286,6 +329,7 @@ const Home: NextPage = () => {
     window.electronAPI.onProcessingStatus(onProcessingStatus)
     window.electronAPI.onTranscriptionResult(onTranscriptionResult)
     window.electronAPI.onTranscriptionRaw(onTranscriptionRaw)
+    window.electronAPI.onTranscriptionLive(onTranscriptionLive)
     window.electronAPI.onProcessingError(onProcessingError)
 
     loadAvailableModels()
@@ -609,6 +653,8 @@ const Home: NextPage = () => {
         (currentStep === 'enrich' && lastResult) ? "grid-cols-1 lg:grid-cols-[450px_1fr]" : "grid-cols-1 max-w-3xl mx-auto"
       )}>
 
+
+
         {/* LEFT COLUMN: Input & Control */}
         <div className="flex flex-col gap-6">
           <section ref={editorRef} className="glass-panel rounded-2xl p-6 border border-white/5 bg-white/[0.02] shadow-2xl relative overflow-hidden group">
@@ -674,7 +720,7 @@ const Home: NextPage = () => {
 
           {/* Q&A Integrated into Left Column when enriched */}
           {currentStep === 'enrich' && (
-            <section className="glass-panel rounded-2xl p-6 border border-white/5 bg-white/[0.01]">
+            <section className="hidden lg:block glass-panel rounded-2xl p-6 border border-white/5 bg-white/[0.01]">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">
                   {t.qaTitle}
@@ -810,6 +856,65 @@ const Home: NextPage = () => {
             )}
           </AnimatePresence>
         </div>
+
+        {currentStep === 'enrich' && (
+          <div className="lg:hidden">
+            <section className="glass-panel rounded-2xl p-6 border border-white/5 bg-white/[0.01]">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">
+                  {t.qaTitle}
+                </h3>
+                <button
+                  onClick={() => { setChatMessages([]); updateHistoryChat([]); }}
+                  className="text-[10px] font-bold text-gray-600 hover:text-white transition-colors uppercase"
+                >
+                  {t.qaClear}
+                </button>
+              </div>
+
+              <div className="space-y-4 max-h-[300px] overflow-y-auto mb-6 pr-2 custom-scrollbar">
+                {chatMessages.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-xs text-gray-600 italic">{t.qaEmpty}</p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, index) => (
+                    <div
+                      key={index}
+                      className={clsx(
+                        'p-4 rounded-xl text-sm leading-relaxed',
+                        msg.role === 'user'
+                          ? 'bg-white/[0.03] text-gray-400 border border-white/5'
+                          : 'bg-everlast-gold/[0.03] text-gray-200 border border-everlast-gold/10'
+                      )}
+                    >
+                      {msg.content}
+                    </div>
+                  ))
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <div className="relative group">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
+                  placeholder={t.qaPlaceholder}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-gray-200 focus:outline-none focus:border-everlast-gold/40 transition-all"
+                />
+                <button
+                  onClick={askQuestion}
+                  disabled={chatBusy || !chatInput.trim()}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-everlast-gold hover:text-everlast-gold-light disabled:opacity-30 transition-all"
+                >
+                  {chatBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <ChevronRight className="w-5 h-5" />}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
 
       <SettingsDrawer isOpen={showSettings} onClose={() => setShowSettings(false)} title={t.settings}>
@@ -858,6 +963,34 @@ const Home: NextPage = () => {
               </div>
             </div>
           )}
+          {/* Auto Enrich */}
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-gray-500 uppercase">{t.autoEnrichLabel}</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setAutoEnrich(false)}
+                className={clsx(
+                  "py-2 px-3 rounded-lg text-sm font-medium border transition-all",
+                  !autoEnrich
+                    ? "bg-everlast-primary/20 border-everlast-primary text-white"
+                    : "bg-everlast-surface border-white/10 text-gray-400 hover:bg-white/5"
+                )}
+              >
+                {t.autoEnrichManual}
+              </button>
+              <button
+                onClick={() => setAutoEnrich(true)}
+                className={clsx(
+                  "py-2 px-3 rounded-lg text-sm font-medium border transition-all",
+                  autoEnrich
+                    ? "bg-everlast-primary/20 border-everlast-primary text-white"
+                    : "bg-everlast-surface border-white/10 text-gray-400 hover:bg-white/5"
+                )}
+              >
+                {t.autoEnrichAuto}
+              </button>
+            </div>
+          </div>
           {/* LLM Provider */}
           <div className="space-y-3">
             <label className="text-xs font-bold text-gray-500 uppercase">{t.provider}</label>
@@ -1040,7 +1173,15 @@ const Home: NextPage = () => {
                 <div className="space-y-4 pt-6 border-t border-white/5">
                   <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.onboardingFeaturesTitle}</h3>
                   <ul className="space-y-3 text-sm text-gray-300">
-                    {[t.onboardingFeatureQa, t.onboardingFeatureHistory, t.onboardingFeaturePresets].map((feature, i) => (
+                    {[
+                      t.onboardingFeatureQa,
+                      t.onboardingFeatureHistory,
+                      t.onboardingFeaturePresets,
+                      t.onboardingFeatureAutoEnrich,
+                      t.onboardingFeatureSttProvider,
+                      t.onboardingFeatureLive,
+                      t.onboardingFeatureLanguage
+                    ].map((feature, i) => (
                       <li key={i} className="flex gap-3 items-start">
                         <span className="mt-1 h-2 w-2 rounded-full bg-everlast-secondary/60" />
                         <p className="leading-relaxed">{feature}</p>

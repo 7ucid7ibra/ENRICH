@@ -4,6 +4,8 @@ const stt = require('./stt');
 const llm = require('./llm');
 
 let mainWindow;
+let autoEnrich = false;
+let deepgramStreaming = false;
 
 function safeSend(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -34,7 +36,21 @@ function setupIpcHandlers(window) {
           }
         }
       }
-      await audioRecorder.startRecording();
+      if (stt.activeProvider === 'deepgram') {
+        if (!stt.deepgramKey) {
+          throw new Error('Deepgram API key not configured.');
+        }
+        deepgramStreaming = true;
+        await stt.startStreaming((text) => {
+          safeSend('transcription-live', { text });
+        });
+        await audioRecorder.startRecording({
+          audioType: 'raw',
+          onData: (chunk) => stt.sendStreamingAudio(chunk)
+        });
+      } else {
+        await audioRecorder.startRecording();
+      }
       safeSend('recording-status', { isRecording: true });
       return { success: true };
     } catch (error) {
@@ -49,7 +65,22 @@ function setupIpcHandlers(window) {
       }
       const audioBuffer = await audioRecorder.stopRecording();
       safeSend('recording-status', { isRecording: false });
-      if (audioBuffer) {
+      if (stt.activeProvider === 'deepgram' && deepgramStreaming) {
+        deepgramStreaming = false;
+        const transcript = await stt.stopStreaming();
+        safeSend('transcription-raw', { text: transcript, final: !autoEnrich });
+        if (autoEnrich) {
+          safeSend('processing-status', {
+            stage: 'enriching',
+            message: 'Enriching content...'
+          });
+          const enriched = await llm.enrich(transcript);
+          safeSend('transcription-result', {
+            original: transcript,
+            enriched: enriched
+          });
+        }
+      } else if (audioBuffer) {
         // Process audio in background
         processAudio(audioBuffer);
       }
@@ -193,6 +224,15 @@ function setupIpcHandlers(window) {
     }
   });
 
+  ipcMain.handle('set-auto-enrich', async (event, enabled) => {
+    try {
+      autoEnrich = Boolean(enabled);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('set-stt-provider', async (event, providerName) => {
     try {
       if (!providerName) {
@@ -255,8 +295,12 @@ async function processAudio(audioBuffer) {
     
     // Transcribe audio
     const transcription = await stt.transcribe(audioBuffer);
-    safeSend('transcription-raw', { text: transcription });
+    safeSend('transcription-raw', { text: transcription, final: !autoEnrich });
     
+    if (!autoEnrich) {
+      return;
+    }
+
     // Send transcription status
     safeSend('processing-status', { 
       stage: 'enriching', 
@@ -278,4 +322,6 @@ async function processAudio(audioBuffer) {
   }
 }
 
-module.exports = { setupIpcHandlers };
+const getAutoEnrich = () => autoEnrich;
+
+module.exports = { setupIpcHandlers, getAutoEnrich };
