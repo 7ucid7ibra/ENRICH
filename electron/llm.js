@@ -114,7 +114,8 @@ class LLMProcessor {
       throw new Error('Question is required');
     }
 
-    const systemPrompt = 'You answer questions about the provided transcript. Be concise and accurate.';
+    const outputLanguage = this.resolveOutputLanguage();
+    const systemPrompt = `You answer questions about the provided transcript. Be concise and accurate. Answer in ${outputLanguage}.`;
     const userPrompt = `Transcript:\n${transcriptText || '(empty)'}\n\nQuestion:\n${question}\n\nAnswer:`;
     return this.generateText(systemPrompt, userPrompt, options);
   }

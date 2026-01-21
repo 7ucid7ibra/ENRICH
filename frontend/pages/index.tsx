@@ -82,6 +82,8 @@ const translations = {
     step2: 'Sprechen Sie deutlich. Die Transkription erscheint nach Ende der Aufnahme.',
     step3: 'Klicken Sie auf "Anreichern", um Zusammenfassungen und Action Items zu erstellen.',
     shortcutRecord: 'Aufnahme starten/stoppen',
+    shortcutEnrich: 'Anreichern auslösen',
+    shortcutCancel: 'Aufnahme abbrechen',
     qaTitle: 'Q&A',
     qaEmpty: 'Stelle Fragen zur Transkription.',
     qaPlaceholder: 'Frage zur Transkription stellen...',
@@ -153,6 +155,8 @@ const translations = {
     step2: 'Speak clearly. The transcription appears after you stop recording.',
     step3: 'Click "Enrich" to generate summaries and action items.',
     shortcutRecord: 'Start/Stop Recording',
+    shortcutEnrich: 'Trigger Enrich',
+    shortcutCancel: 'Cancel Recording',
     qaTitle: 'Q&A',
     qaEmpty: 'Ask questions about the transcription.',
     qaPlaceholder: 'Ask a question about the transcript...',
@@ -187,9 +191,9 @@ const Home: NextPage = () => {
   const [rawTranscription, setRawTranscription] = useState<string>('')
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const [showInfo, setShowInfo] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [skipOnboarding, setSkipOnboarding] = useState(false)
+  const [onboardingFeaturesOpen, setOnboardingFeaturesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
@@ -477,20 +481,37 @@ const Home: NextPage = () => {
     if (typeof window === 'undefined') {
       return
     }
-    try {
-      const stored = window.localStorage.getItem('everlast-history')
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed)) {
-          setHistoryItems(parsed)
-          if (parsed[0]?.id) {
-            setActiveHistoryId(parsed[0].id)
+    const loadHistory = async () => {
+      try {
+        if (window.electronAPI?.getHistory) {
+          const response = await window.electronAPI.getHistory()
+          const parsed = Array.isArray(response?.history) ? response.history : []
+          if (parsed.length > 0) {
+            setHistoryItems(parsed)
+            if (parsed[0]?.id) {
+              setActiveHistoryId(parsed[0].id)
+            }
+            return
           }
         }
+        const stored = window.localStorage.getItem('everlast-history')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (Array.isArray(parsed)) {
+            setHistoryItems(parsed)
+            if (parsed[0]?.id) {
+              setActiveHistoryId(parsed[0].id)
+            }
+            if (window.electronAPI?.saveHistory) {
+              window.electronAPI.saveHistory(parsed)
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load history:', error)
       }
-    } catch (error) {
-      console.warn('Failed to load history:', error)
     }
+    loadHistory()
   }, [])
 
   useEffect(() => {
@@ -499,6 +520,7 @@ const Home: NextPage = () => {
     }
     try {
       window.localStorage.setItem('everlast-history', JSON.stringify(historyItems))
+      window.electronAPI?.saveHistory?.(historyItems)
     } catch (error) {
       console.warn('Failed to save history:', error)
     }
@@ -579,6 +601,21 @@ const Home: NextPage = () => {
       setProcessingStatus(null)
     }
   }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') {
+        return
+      }
+      event.preventDefault()
+      if (isRecording || isProcessing || !rawTranscription.trim()) {
+        return
+      }
+      enrichFromText()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isRecording, isProcessing, rawTranscription])
 
   const askQuestion = async () => {
     if (!chatInput.trim()) {
@@ -869,7 +906,7 @@ const Home: NextPage = () => {
           {[
             { icon: History, onClick: () => setShowHistory(true) },
             { icon: Settings, onClick: () => setShowSettings(true) },
-            { icon: Info, onClick: () => setShowInfo(true) },
+            { icon: Info, onClick: () => setShowOnboarding(true) },
           ].map((item, i) => (
             <button
               key={i}
@@ -1644,31 +1681,63 @@ const Home: NextPage = () => {
                 </div>
 
                 <div className="space-y-4 pt-6 border-t border-white/5">
-                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.onboardingFeaturesTitle}</h3>
-                  <ul className="space-y-3 text-sm text-gray-300">
-                    {[
-                      t.onboardingFeatureQa,
-                      t.onboardingFeatureHistory,
-                      t.onboardingFeaturePresets,
-                      t.onboardingFeatureAutoEnrich,
-                      t.onboardingFeatureSttProvider,
-                      t.onboardingFeatureLive,
-                      t.onboardingFeatureLanguage,
-                      t.onboardingFeatureTts
-                    ].map((feature, i) => (
-                      <li key={i} className="flex gap-3 items-start">
-                        <span className="mt-1 h-2 w-2 rounded-full bg-everlast-secondary/60" />
-                        <p className="leading-relaxed">{feature}</p>
-                      </li>
-                    ))}
-                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setOnboardingFeaturesOpen((prev) => !prev)}
+                    className="w-full flex items-center justify-between text-sm font-bold text-everlast-secondary uppercase tracking-widest"
+                  >
+                    <span>{t.onboardingFeaturesTitle}</span>
+                    <ChevronRight className={clsx("w-4 h-4 transition-transform", onboardingFeaturesOpen && "rotate-90")} />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {onboardingFeaturesOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <ul className="space-y-3 text-sm text-gray-300 pt-2">
+                          {[
+                            t.onboardingFeatureQa,
+                            t.onboardingFeatureHistory,
+                            t.onboardingFeaturePresets,
+                            t.onboardingFeatureAutoEnrich,
+                            t.onboardingFeatureSttProvider,
+                            t.onboardingFeatureLive,
+                            t.onboardingFeatureLanguage,
+                            t.onboardingFeatureTts
+                          ].map((feature, i) => (
+                            <li key={i} className="flex gap-3 items-start">
+                              <span className="mt-1 h-2 w-2 rounded-full bg-everlast-secondary/60" />
+                              <p className="leading-relaxed">{feature}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 <div className="space-y-4 pt-6 border-t border-white/5">
                   <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.shortcuts}</h3>
-                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl border border-white/5">
-                    <span className="text-sm text-gray-300">{t.shortcutRecord}</span>
-                    <kbd className="px-3 py-1 bg-black rounded-md border border-white/20 text-xs font-mono text-everlast-secondary shadow-sm tracking-tighter">⌘ + Shift + Space</kbd>
+                  <div className="space-y-3">
+                    {[
+                      { label: t.shortcutRecord, keys: '⌘ + Shift + Space' },
+                      { label: t.shortcutEnrich, keys: '⌘ + Enter' },
+                      { label: t.shortcutCancel, keys: 'Esc' }
+                    ].map((shortcut) => (
+                      <div
+                        key={shortcut.keys}
+                        className="flex justify-between items-center p-4 bg-white/5 rounded-xl border border-white/5"
+                      >
+                        <span className="text-sm text-gray-300">{shortcut.label}</span>
+                        <kbd className="px-3 py-1 bg-black rounded-md border border-white/20 text-xs font-mono text-everlast-secondary shadow-sm tracking-tighter">
+                          {shortcut.keys}
+                        </kbd>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1694,68 +1763,6 @@ const Home: NextPage = () => {
           </div>
         )}
       </AnimatePresence>
-      {/* Info Modal */}
-      <AnimatePresence>
-        {showInfo && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowInfo(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 1 }}
-              className="relative w-full max-w-lg bg-everlast-surface border border-white/10 rounded-2xl p-8 shadow-2xl z-[101]"
-            >
-              <div className="flex justify-between items-center mb-8">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-everlast-secondary/10 rounded-lg">
-                    <Info className="w-6 h-6 text-everlast-secondary" />
-                  </div>
-                  <h2 className="text-2xl font-bold tracking-tight text-white">{t.info}</h2>
-                </div>
-                <button onClick={() => setShowInfo(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                  <X className="w-6 h-6 text-gray-400" />
-                </button>
-              </div>
-
-              <div className="space-y-8">
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.howToUse}</h3>
-                  <ul className="space-y-3">
-                    {[t.step1, t.step2, t.step3].map((step, i) => (
-                      <li key={i} className="flex gap-4 items-start text-gray-300">
-                        <span className="flex-shrink-0 w-6 h-6 bg-white/5 border border-white/10 rounded-md flex items-center justify-center text-xs font-bold text-everlast-secondary">{i + 1}</span>
-                        <p className="text-sm leading-relaxed">{step}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="space-y-4 pt-6 border-t border-white/5">
-                  <h3 className="text-sm font-bold text-everlast-secondary uppercase tracking-widest">{t.shortcuts}</h3>
-                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl border border-white/5">
-                    <span className="text-sm text-gray-300">{t.shortcutRecord}</span>
-                    <kbd className="px-3 py-1 bg-black rounded-md border border-white/20 text-xs font-mono text-everlast-secondary shadow-sm tracking-tighter">⌘ + Shift + Space</kbd>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowInfo(false)}
-                className="w-full mt-10 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium transition-all text-white"
-              >
-                {t.close}
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
     </Layout>
   )
 }

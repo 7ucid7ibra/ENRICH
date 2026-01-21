@@ -8,6 +8,8 @@ export interface ElectronAPI {
   startRecording: () => Promise<{ success: boolean; error?: string }>
   stopRecording: () => Promise<{ success: boolean; error?: string }>
   getAvailableModels: () => Promise<any>
+  getHistory: () => Promise<{ success: boolean; history?: any[]; error?: string }>
+  saveHistory: (history: any[]) => Promise<{ success: boolean; error?: string }>
   setActivePreset: (preset: string) => Promise<{ success: boolean; error?: string }>
   setOllamaModel: (model: string) => Promise<{ success: boolean; error?: string }>
   setOllamaUrl: (url: string) => Promise<{ success: boolean; error?: string }>
