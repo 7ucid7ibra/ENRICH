@@ -1,5 +1,9 @@
 # ENRICH
 
+
+https://github.com/user-attachments/assets/382b644a-697f-495b-ab4d-fd5b2ed84676
+
+
 Eine Desktop‑App, die Sprache aufnimmt, transkribiert und mit KI zu strukturierten Notizen anreichert. Entwickelt mit Electron + Next.js für einen schnellen, fokussierten Workflow.
 
 ## Funktionen
