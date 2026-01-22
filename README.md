@@ -1,4 +1,4 @@
-# Everlast Enrichment (Voice Intelligence Desktop App)
+# ENRICH
 
 Eine Desktop‑App, die Sprache aufnimmt, transkribiert und mit KI zu strukturierten Notizen anreichert. Entwickelt mit Electron + Next.js für einen schnellen, fokussierten Workflow.
 
