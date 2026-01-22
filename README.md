@@ -27,7 +27,7 @@ Eine Desktop‑App, die Sprache aufnimmt, transkribiert und mit KI zu strukturie
 
 ## Schnellstart (Dev)
 
-### 1) Abhaengigkeiten installieren
+### 1) Abhängigkeiten installieren
 
 ```bash
 npm install
@@ -66,7 +66,7 @@ Artefakte liegen in `dist/`. Das DMG ist unsigniert.
 
 ### macOS Gatekeeper (unsigniert)
 
-Rechtsklick auf die App → Oeffnen → Oeffnen, oder:
+Rechtsklick auf die App → Öffnen → Öffnen, oder:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/ENRICH.app
@@ -77,7 +77,7 @@ xattr -dr com.apple.quarantine /Applications/ENRICH.app
 - **STT Provider**: Whisper (lokal) oder Deepgram (cloud)
 - **LLM Provider**: Ollama / OpenAI / Gemini / OpenCode
 - **API Keys**: in den Settings setzen
-- **TTS Stimme**: pro Sprache waehlen
+- **TTS Stimme**: pro Sprache wählen
 
 ## Hotkeys
 
@@ -118,7 +118,7 @@ whisper.cpp/   # Whisper.cpp + Modelle (lokal dev)
 ## Demo‑Ablauf
 
 1) App starten
-2) Hotkey druecken, sprechen, Aufnahme stoppen
+2) Hotkey drücken, sprechen, Aufnahme stoppen
 3) Transkription erscheint
 4) Anreichern (Button oder Cmd/Ctrl+Enter)
 5) Zusammenfassung + Kernthemen + Action Items ansehen
@@ -126,4 +126,4 @@ whisper.cpp/   # Whisper.cpp + Modelle (lokal dev)
 
 ---
 
-Wenn du Fragen zum Build oder zur Nutzung hast, erstelle ein Issue oder kontaktiere den Autor.
+Wenn du Fragen zum Build oder zur Nutzung hast, erstelle ein Issue oder kontaktiere mich.
