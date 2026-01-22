@@ -140,7 +140,7 @@ const synthesize = async (text, options = {}) => {
     throw new Error(`Piper config not found: ${configPath}`);
   }
 
-  const outputDir = path.join(os.tmpdir(), 'voice-intelligence', 'tts');
+  const outputDir = path.join(os.tmpdir(), 'enrich', 'tts');
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }

@@ -130,7 +130,7 @@ class AudioRecorder {
 
   // Alternative method using Web Audio API through renderer process
   async saveAudioToFile(audioBuffer, filename) {
-    const tempDir = path.join(require('os').tmpdir(), 'voice-intelligence');
+    const tempDir = path.join(require('os').tmpdir(), 'enrich');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }

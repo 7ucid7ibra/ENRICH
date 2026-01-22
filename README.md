@@ -1,4 +1,4 @@
-# Everlast Enrichment (Voice Intelligence Desktop App)
+# ENRICH (Desktop App)
 
 Eine Desktop‑App, die Sprache aufnimmt, transkribiert und mit KI zu strukturierten Notizen anreichert. Entwickelt mit Electron + Next.js für einen schnellen, fokussierten Workflow.
 
@@ -85,7 +85,7 @@ xattr -dr com.apple.quarantine /Applications/YourApp.app
 
 Der Verlauf wird gespeichert unter:
 
-- macOS: `~/Library/Application Support/Voice Intelligence/everlast-history.json`
+- macOS: `~/Library/Application Support/ENRICH/everlast-history.json`
 
 ## Troubleshooting
 
