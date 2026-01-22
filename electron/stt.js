@@ -11,7 +11,7 @@ class SpeechToText {
     this.modelName = (process.env.WHISPER_MODEL || 'small').toLowerCase();
     this.activeProvider = (process.env.STT_PROVIDER || 'whisper').toLowerCase();
     this.deepgramKey = process.env.DEEPGRAM_API_KEY || null;
-    this.tempDir = path.join(require('os').tmpdir(), 'voice-intelligence');
+    this.tempDir = path.join(require('os').tmpdir(), 'enrich');
     this.streamState = null;
     
     // Ensure temp directory exists

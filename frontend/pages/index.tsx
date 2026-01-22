@@ -1543,7 +1543,7 @@ const Home: NextPage = () => {
                 </div>
 
                 <div className="pt-4 border-t border-white/10 text-xs text-gray-600">
-                  Everlast Transcription v2.0
+            ENRICH v1.0.0
                 </div>
                   </div>
                 </motion.div>

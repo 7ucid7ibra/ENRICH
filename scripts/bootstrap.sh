@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "Bootstrapping Voice Intelligence..."
+echo "Bootstrapping ENRICH..."
 
 if [ -z "${WHISPER_PATH:-}" ]; then
   if [ -f "$ROOT_DIR/whisper.cpp/build/bin/whisper-cli" ]; then

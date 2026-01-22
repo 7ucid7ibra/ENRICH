@@ -1,7 +1,7 @@
 {
   "name": "enrich",
   "version": "1.0.0",
-  "description": "Voice Intelligence Desktop App with local AI processing",
+  "description": "ENRICH desktop app for voice capture, transcription, and AI enrichment",
   "main": "electron/main.js",
   "homepage": "./",
   "scripts": {
