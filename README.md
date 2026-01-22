@@ -1,4 +1,4 @@
-# ENRICH (Desktop App)
+# ENRICH
 
 Eine Desktop‑App, die Sprache aufnimmt, transkribiert und mit KI zu strukturierten Notizen anreichert. Entwickelt mit Electron + Next.js für einen schnellen, fokussierten Workflow.
 
@@ -65,7 +65,7 @@ Artefakte liegen in `dist/`. Das DMG ist unsigniert.
 Rechtsklick auf die App → Oeffnen → Oeffnen, oder:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/YourApp.app
+xattr -dr com.apple.quarantine /Applications/ENRICH.app
 ```
 
 ## Konfiguration (in der App)
