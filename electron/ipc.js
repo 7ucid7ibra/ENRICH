@@ -10,6 +10,8 @@ let mainWindow;
 let currentQuestionAbort = null;
 let autoEnrich = false;
 let deepgramStreaming = false;
+let chatStreaming = false;
+let activeRecordingContext = null;
 const historyPath = path.join(app.getPath('userData'), 'everlast-history.json');
 
 function safeSend(channel, payload) {
@@ -32,6 +34,9 @@ function setupIpcHandlers(window) {
       if (!mainWindow) {
         throw new Error('Main window not ready');
       }
+      if (activeRecordingContext && activeRecordingContext !== 'main') {
+        throw new Error('Another recording is already in progress.');
+      }
       if (process.platform === 'darwin') {
         const status = systemPreferences.getMediaAccessStatus('microphone');
         if (status !== 'granted') {
@@ -41,6 +46,7 @@ function setupIpcHandlers(window) {
           }
         }
       }
+      activeRecordingContext = 'main';
       if (stt.activeProvider === 'deepgram') {
         if (!stt.deepgramKey) {
           throw new Error('Deepgram API key not configured.');
@@ -60,6 +66,9 @@ function setupIpcHandlers(window) {
       safeSend('recording-status', { isRecording: true });
       return { success: true };
     } catch (error) {
+      if (activeRecordingContext === 'main') {
+        activeRecordingContext = null;
+      }
       return { success: false, error: error.message };
     }
   });
@@ -69,8 +78,14 @@ function setupIpcHandlers(window) {
       if (!mainWindow) {
         throw new Error('Main window not ready');
       }
+      if (activeRecordingContext && activeRecordingContext !== 'main') {
+        throw new Error('Another recording is already in progress.');
+      }
       const audioBuffer = await audioRecorder.stopRecording();
       safeSend('recording-status', { isRecording: false });
+      if (activeRecordingContext === 'main') {
+        activeRecordingContext = null;
+      }
       if (stt.activeProvider === 'deepgram' && deepgramStreaming) {
         deepgramStreaming = false;
         const transcript = await stt.stopStreaming();
@@ -92,6 +107,9 @@ function setupIpcHandlers(window) {
       }
       return { success: true };
     } catch (error) {
+      if (activeRecordingContext === 'main') {
+        activeRecordingContext = null;
+      }
       return { success: false, error: error.message };
     }
   });
@@ -101,14 +119,99 @@ function setupIpcHandlers(window) {
       if (!mainWindow) {
         throw new Error('Main window not ready');
       }
+      if (activeRecordingContext && activeRecordingContext !== 'main') {
+        throw new Error('Another recording is already in progress.');
+      }
       await audioRecorder.stopRecording();
       if (stt.activeProvider === 'deepgram' && deepgramStreaming) {
         deepgramStreaming = false;
         await stt.stopStreaming();
       }
       safeSend('recording-status', { isRecording: false, cancelled: true });
+      if (activeRecordingContext === 'main') {
+        activeRecordingContext = null;
+      }
       return { success: true };
     } catch (error) {
+      if (activeRecordingContext === 'main') {
+        activeRecordingContext = null;
+      }
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('start-chat-recording', async () => {
+    try {
+      if (!mainWindow) {
+        throw new Error('Main window not ready');
+      }
+      if (activeRecordingContext) {
+        throw new Error('Another recording is already in progress.');
+      }
+      if (process.platform === 'darwin') {
+        const status = systemPreferences.getMediaAccessStatus('microphone');
+        if (status !== 'granted') {
+          const granted = await systemPreferences.askForMediaAccess('microphone');
+          if (!granted) {
+            throw new Error('Microphone access denied. Enable it in System Settings.');
+          }
+        }
+      }
+      activeRecordingContext = 'chat';
+      if (stt.activeProvider === 'deepgram') {
+        if (!stt.deepgramKey) {
+          throw new Error('Deepgram API key not configured.');
+        }
+        chatStreaming = true;
+        await stt.startStreaming((text) => {
+          safeSend('chat-transcription-live', { text });
+        });
+        await audioRecorder.startRecording({
+          audioType: 'raw',
+          silence: '0',
+          onData: (chunk) => stt.sendStreamingAudio(chunk)
+        });
+      } else {
+        await audioRecorder.startRecording();
+      }
+      safeSend('chat-recording-status', { isRecording: true });
+      return { success: true };
+    } catch (error) {
+      if (activeRecordingContext === 'chat') {
+        activeRecordingContext = null;
+      }
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('stop-chat-recording', async () => {
+    try {
+      if (!mainWindow) {
+        throw new Error('Main window not ready');
+      }
+      if (activeRecordingContext && activeRecordingContext !== 'chat') {
+        throw new Error('Another recording is already in progress.');
+      }
+      const audioBuffer = await audioRecorder.stopRecording();
+      safeSend('chat-recording-status', { isRecording: false });
+      if (activeRecordingContext === 'chat') {
+        activeRecordingContext = null;
+      }
+      if (stt.activeProvider === 'deepgram' && chatStreaming) {
+        chatStreaming = false;
+        const transcript = await stt.stopStreaming();
+        safeSend('chat-transcription-raw', { text: transcript, final: true });
+        return { success: true };
+      }
+      if (audioBuffer) {
+        const transcript = await stt.transcribe(audioBuffer);
+        safeSend('chat-transcription-raw', { text: transcript, final: true });
+      }
+      return { success: true };
+    } catch (error) {
+      if (activeRecordingContext === 'chat') {
+        activeRecordingContext = null;
+      }
       return { success: false, error: error.message };
     }
   });
@@ -133,11 +236,14 @@ function setupIpcHandlers(window) {
           deepgramConfigured: Boolean(stt.deepgramKey)
         },
         tts: {
+          provider: tts.getActiveProvider ? tts.getActiveProvider() : 'piper',
           voices: voices.map((voice) => ({
             voice_id: voice.voice_id,
             name: voice.name,
             language: voice.language
           })),
+          elevenlabsConfigured: tts.isElevenLabsConfigured ? tts.isElevenLabsConfigured() : false,
+          elevenlabsVoiceId: tts.getElevenLabsVoiceId ? tts.getElevenLabsVoiceId() : null,
           selected: {
             en: tts.getVoiceForLanguage('en'),
             de: tts.getVoiceForLanguage('de')
@@ -308,6 +414,39 @@ function setupIpcHandlers(window) {
         return { success: false, error: 'Failed to set TTS voice.' };
       }
       return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-tts-provider', async (event, providerName) => {
+    try {
+      if (!providerName) {
+        return { success: false, error: 'TTS provider is required' };
+      }
+      const success = tts.setActiveProvider(providerName);
+      if (!success) {
+        return { success: false, error: `Unsupported TTS provider: ${providerName}` };
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-elevenlabs-key', async (event, apiKey) => {
+    try {
+      const success = tts.setElevenLabsKey(apiKey);
+      return { success };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-elevenlabs-voice-id', async (event, voiceId) => {
+    try {
+      const success = tts.setElevenLabsVoiceId(voiceId);
+      return { success };
     } catch (error) {
       return { success: false, error: error.message };
     }

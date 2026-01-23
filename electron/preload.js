@@ -25,6 +25,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTranscriptionLive: (callback) => {
     ipcRenderer.on('transcription-live', (event, data) => callback(data));
   },
+
+  // Chat transcription
+  onChatRecordingStatus: (callback) => {
+    ipcRenderer.on('chat-recording-status', (event, data) => callback(data));
+  },
+  onChatTranscriptionRaw: (callback) => {
+    ipcRenderer.on('chat-transcription-raw', (event, data) => callback(data));
+  },
+  onChatTranscriptionLive: (callback) => {
+    ipcRenderer.on('chat-transcription-live', (event, data) => callback(data));
+  },
   
   // Error handling
   onProcessingError: (callback) => {
@@ -34,6 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Manual recording control
   startRecording: () => ipcRenderer.invoke('start-recording'),
   stopRecording: () => ipcRenderer.invoke('stop-recording'),
+  startChatRecording: () => ipcRenderer.invoke('start-chat-recording'),
+  stopChatRecording: () => ipcRenderer.invoke('stop-chat-recording'),
   
   // Get available models
   getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
@@ -50,6 +63,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setLLMProvider: (provider) => ipcRenderer.invoke('set-llm-provider', provider),
   setSTTProvider: (provider) => ipcRenderer.invoke('set-stt-provider', provider),
   setDeepgramKey: (apiKey) => ipcRenderer.invoke('set-deepgram-key', apiKey),
+  setTtsProvider: (provider) => ipcRenderer.invoke('set-tts-provider', provider),
+  setElevenLabsKey: (apiKey) => ipcRenderer.invoke('set-elevenlabs-key', apiKey),
+  setElevenLabsVoiceId: (voiceId) => ipcRenderer.invoke('set-elevenlabs-voice-id', voiceId),
   setAutoEnrich: (enabled) => ipcRenderer.invoke('set-auto-enrich', enabled),
   ttsSpeak: (payload) => ipcRenderer.invoke('tts-speak', payload),
   setTtsVoice: (payload) => ipcRenderer.invoke('set-tts-voice', payload),

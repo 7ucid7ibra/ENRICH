@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Copy, Check, ChevronRight, Info, X, Loader2, History, Volume2 } from 'lucide-react'
+import { Settings, Copy, Check, ChevronRight, Info, X, Loader2, History, Volume2, Mic, MicOff } from 'lucide-react'
 import type { NextPage } from 'next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
@@ -94,8 +94,14 @@ const translations = {
     autoEnrichLabel: 'Auto-Anreichern',
     autoEnrichManual: 'Manuell',
     autoEnrichAuto: 'Auto',
+    ttsProvider: 'Text-zu-Sprache',
+    ttsPiper: 'piper',
+    ttsElevenlabs: 'elevenlabs',
+    ttsApiKey: 'ElevenLabs API Key',
+    ttsVoiceId: 'ElevenLabs Voice ID',
     ttsVoice: 'TTS Stimme',
-    settingsStt: 'STT & TTS',
+    settingsStt: 'STT',
+    settingsTts: 'TTS',
     settingsBehavior: 'Verhalten',
     settingsLlm: 'KI Provider',
     settingsPresets: 'Presets',
@@ -167,7 +173,13 @@ const translations = {
     autoEnrichLabel: 'Auto Enrich',
     autoEnrichManual: 'Manual',
     autoEnrichAuto: 'Auto',
-    settingsStt: 'STT & TTS',
+    ttsProvider: 'Text-to-Speech',
+    ttsPiper: 'piper',
+    ttsElevenlabs: 'elevenlabs',
+    ttsApiKey: 'ElevenLabs API Key',
+    ttsVoiceId: 'ElevenLabs Voice ID',
+    settingsStt: 'STT',
+    settingsTts: 'TTS',
     settingsBehavior: 'Behavior',
     settingsLlm: 'AI Provider',
     settingsPresets: 'Presets',
@@ -200,6 +212,7 @@ const Home: NextPage = () => {
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
+  const [chatRecording, setChatRecording] = useState(false)
 
   // Settings State
   const [availableModels, setAvailableModels] = useState<any>(null)
@@ -207,18 +220,22 @@ const Home: NextPage = () => {
   const [activeOllamaModel, setActiveOllamaModel] = useState<string | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('opencode')
   const [sttProvider, setSttProvider] = useState<string>('whisper')
+  const [ttsProvider, setTtsProvider] = useState<string>('piper')
   const [autoEnrich, setAutoEnrich] = useState(false)
   const [ttsVoices, setTtsVoices] = useState<{ voice_id: string; name: string; language?: string }[]>([])
   const [ttsVoiceId, setTtsVoiceId] = useState<string>('')
+  const [ttsElevenLabsVoiceId, setTtsElevenLabsVoiceId] = useState<string>('')
+  const [savedTtsElevenLabsVoiceId, setSavedTtsElevenLabsVoiceId] = useState<string>('')
   const [ttsBusyKey, setTtsBusyKey] = useState<string | null>(null)
   const [ttsPlayingKey, setTtsPlayingKey] = useState<string | null>(null)
   const [providerModels, setProviderModels] = useState<string[]>([])
   const [ollamaUrl, setOllamaUrl] = useState('')
-  const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '', deepgram: '' })
-  const [savedApiKeys, setSavedApiKeys] = useState({ openai: '', gemini: '', deepgram: '' })
+  const [apiKeys, setApiKeys] = useState({ openai: '', gemini: '', deepgram: '', elevenlabs: '' })
+  const [savedApiKeys, setSavedApiKeys] = useState({ openai: '', gemini: '', deepgram: '', elevenlabs: '' })
   const [saveStatus, setSaveStatus] = useState<Record<string, boolean>>({})
   const [settingsSections, setSettingsSections] = useState({
     stt: false,
+    tts: false,
     behavior: false,
     llm: false,
     presets: false
@@ -358,14 +375,22 @@ const Home: NextPage = () => {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isRecording) {
+      if (event.key !== 'Escape') {
+        return
+      }
+      if (chatRecording) {
+        event.preventDefault()
+        window.electronAPI?.stopChatRecording()
+        return
+      }
+      if (isRecording) {
         event.preventDefault()
         cancelRecording()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isRecording])
+  }, [chatRecording, isRecording])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.electronAPI) {
@@ -455,12 +480,30 @@ const Home: NextPage = () => {
       setProcessingStatus(null)
     }
 
+    const onChatRecordingStatus = (status: RecordingStatus) => {
+      setChatRecording(status.isRecording)
+    }
+
+    const onChatTranscriptionRaw = (data: { text: string; final?: boolean }) => {
+      setChatInput(data.text || '')
+      if (data.final) {
+        setChatRecording(false)
+      }
+    }
+
+    const onChatTranscriptionLive = (data: { text: string }) => {
+      setChatInput(data.text || '')
+    }
+
     window.electronAPI.onRecordingStatus(onRecordingStatus)
     window.electronAPI.onProcessingStatus(onProcessingStatus)
     window.electronAPI.onTranscriptionResult(onTranscriptionResult)
     window.electronAPI.onTranscriptionRaw(onTranscriptionRaw)
     window.electronAPI.onTranscriptionLive(onTranscriptionLive)
     window.electronAPI.onProcessingError(onProcessingError)
+    window.electronAPI.onChatRecordingStatus(onChatRecordingStatus)
+    window.electronAPI.onChatTranscriptionRaw(onChatTranscriptionRaw)
+    window.electronAPI.onChatTranscriptionLive(onChatTranscriptionLive)
 
     loadAvailableModels()
 
@@ -472,7 +515,11 @@ const Home: NextPage = () => {
       window.electronAPI.removeListener?.('processing-status', onProcessingStatus)
       window.electronAPI.removeListener?.('transcription-result', onTranscriptionResult)
       window.electronAPI.removeListener?.('transcription-raw', onTranscriptionRaw)
+      window.electronAPI.removeListener?.('transcription-live', onTranscriptionLive)
       window.electronAPI.removeListener?.('processing-error', onProcessingError)
+      window.electronAPI.removeListener?.('chat-recording-status', onChatRecordingStatus)
+      window.electronAPI.removeListener?.('chat-transcription-raw', onChatTranscriptionRaw)
+      window.electronAPI.removeListener?.('chat-transcription-live', onChatTranscriptionLive)
     }
   }, [])
 
@@ -539,8 +586,12 @@ const Home: NextPage = () => {
         setProviderModels(models?.llm?.models || [])
         setOllamaUrl(models?.llm?.ollamaUrl || '')
         setTtsVoices(models?.tts?.voices || [])
+        setTtsProvider(models?.tts?.provider || 'piper')
         const selected = models?.tts?.selected?.[language] || ''
         setTtsVoiceId(selected)
+        const elevenLabsVoiceId = models?.tts?.elevenlabsVoiceId || ''
+        setTtsElevenLabsVoiceId(elevenLabsVoiceId)
+        setSavedTtsElevenLabsVoiceId(elevenLabsVoiceId)
       }
     } catch (error) {
       console.error('Failed to load models:', error)
@@ -549,6 +600,10 @@ const Home: NextPage = () => {
 
   const toggleRecording = async () => {
     try {
+      if (chatRecording) {
+        setError('Chat recording in progress')
+        return
+      }
       if (isRecording) {
         await window.electronAPI?.stopRecording()
       } else {
@@ -556,6 +611,33 @@ const Home: NextPage = () => {
       }
     } catch (error) {
       setError('Failed to toggle recording')
+    }
+  }
+
+  const toggleChatRecording = async () => {
+    if (isRecording) {
+      setError('Recording in progress')
+      return
+    }
+    if (!window.electronAPI?.startChatRecording) {
+      setError('Recording not available')
+      return
+    }
+    try {
+      if (chatRecording) {
+        await window.electronAPI.stopChatRecording()
+        return
+      }
+      const result = await window.electronAPI.startChatRecording()
+      if (!result?.success) {
+        setChatRecording(false)
+        setError(result?.error || 'Failed to start recording')
+        return
+      }
+      setChatRecording(true)
+    } catch (error) {
+      setChatRecording(false)
+      setError('Failed to start recording')
     }
   }
 
@@ -735,6 +817,7 @@ const Home: NextPage = () => {
     if (provider === 'openai') result = await window.electronAPI?.setOpenAIKey(key)
     if (provider === 'gemini') result = await window.electronAPI?.setGeminiKey(key)
     if (provider === 'deepgram') result = await window.electronAPI?.setDeepgramKey(key)
+    if (provider === 'elevenlabs') result = await window.electronAPI?.setElevenLabsKey(key)
 
     if (result?.success) {
       setSavedApiKeys((prev) => ({ ...prev, [provider]: key }))
@@ -773,6 +856,38 @@ const Home: NextPage = () => {
       }
     } catch (error) {
       setError('Failed to change STT provider')
+    }
+  }
+
+  const handleTtsProviderChange = async (provider: string) => {
+    try {
+      setTtsProvider(provider)
+      if (!window.electronAPI?.setTtsProvider) {
+        setError('TTS provider control not available')
+        return
+      }
+      const result = await window.electronAPI.setTtsProvider(provider)
+      if (result?.success) {
+        await loadAvailableModels()
+      } else {
+        setError(result?.error || 'Failed to change TTS provider')
+      }
+    } catch (error) {
+      setError('Failed to change TTS provider')
+    }
+  }
+
+  const handleSaveElevenLabsVoiceId = async () => {
+    const voiceId = ttsElevenLabsVoiceId.trim()
+    if (!voiceId) {
+      return
+    }
+    const result = await window.electronAPI?.setElevenLabsVoiceId(voiceId)
+    if (result?.success) {
+      setSavedTtsElevenLabsVoiceId(voiceId)
+      setSaveStatus(prev => ({ ...prev, elevenlabsVoiceId: true }))
+      setTimeout(() => setSaveStatus(prev => ({ ...prev, elevenlabsVoiceId: false })), 2000)
+      await loadAvailableModels()
     }
   }
 
@@ -866,6 +981,14 @@ const Home: NextPage = () => {
       return false
     }
     return value !== (savedApiKeys[provider] || '')
+  }
+
+  const isElevenLabsVoiceIdDirty = () => {
+    const value = ttsElevenLabsVoiceId.trim()
+    if (!value) {
+      return false
+    }
+    return value !== savedTtsElevenLabsVoiceId
   }
 
   const toggleSettingsSection = (key: keyof typeof settingsSections) => {
@@ -1074,13 +1197,27 @@ const Home: NextPage = () => {
               </div>
 
               <div ref={qaInputRef} className="relative group mt-auto">
+                <button
+                  type="button"
+                  onClick={toggleChatRecording}
+                  className={clsx(
+                    "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full border transition-all",
+                    chatRecording
+                      ? "bg-everlast-gold/10 border-everlast-gold/50 text-everlast-gold animate-pulse"
+                      : "bg-black/30 text-gray-300 hover:text-everlast-gold border-white/10 hover:border-everlast-gold/40"
+                  )}
+                  aria-label={chatRecording ? 'Stop recording' : 'Record question'}
+                  title={chatRecording ? 'Stop recording' : 'Record question'}
+                >
+                  {chatRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
                   placeholder={t.qaPlaceholder}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-gray-200 focus:outline-none focus:border-everlast-gold/40 transition-all"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-12 text-sm text-gray-200 focus:outline-none focus:border-everlast-gold/40 transition-all"
                 />
                 <button
                   onClick={() => (chatBusy ? cancelAskQuestion() : askQuestion())}
@@ -1273,13 +1410,27 @@ const Home: NextPage = () => {
               </div>
 
               <div ref={qaInputMobileRef} className="relative group mt-auto">
+                <button
+                  type="button"
+                  onClick={toggleChatRecording}
+                  className={clsx(
+                    "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full border transition-all",
+                    chatRecording
+                      ? "bg-everlast-gold/10 border-everlast-gold/50 text-everlast-gold animate-pulse"
+                      : "bg-black/30 text-gray-300 hover:text-everlast-gold border-white/10 hover:border-everlast-gold/40"
+                  )}
+                  aria-label={chatRecording ? 'Stop recording' : 'Record question'}
+                  title={chatRecording ? 'Stop recording' : 'Record question'}
+                >
+                  {chatRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
                   placeholder={t.qaPlaceholder}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-gray-200 focus:outline-none focus:border-everlast-gold/40 transition-all"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-12 text-sm text-gray-200 focus:outline-none focus:border-everlast-gold/40 transition-all"
                 />
                 <button
                   onClick={() => (chatBusy ? cancelAskQuestion() : askQuestion())}
@@ -1372,25 +1523,124 @@ const Home: NextPage = () => {
                     </div>
                   </div>
                 )}
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-gray-500 uppercase">{t.ttsVoice}</label>
-                  <select
-                    value={ttsVoiceId || ''}
-                    onChange={(e) => handleTtsVoiceChange(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200 outline-none focus:border-[#FDFD96]"
-                  >
-                    {ttsVoiceOptions.length === 0 ? (
-                      <option value="">No voices found</option>
-                    ) : (
-                      ttsVoiceOptions.map((voice) => (
-                        <option key={voice.voice_id} value={voice.voice_id}>
-                          {voice.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
               </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* TTS Section */}
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => toggleSettingsSection('tts')}
+              className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-white transition-all"
+            >
+              <span>{t.settingsTts}</span>
+              <ChevronRight className={clsx("w-4 h-4 transition-transform", settingsSections.tts && "rotate-90")} />
+            </button>
+            <AnimatePresence initial={false}>
+              {settingsSections.tts && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="space-y-6 pt-2">
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-gray-500 uppercase">{t.ttsProvider}</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['piper', 'elevenlabs'].map(p => (
+                          <button
+                            key={p}
+                            onClick={() => handleTtsProviderChange(p)}
+                            className={clsx(
+                              "py-2 px-3 rounded-lg text-sm font-medium border transition-all",
+                              ttsProvider === p
+                                ? "bg-everlast-primary/20 border-everlast-primary text-white"
+                                : "bg-everlast-surface border-white/10 text-gray-400 hover:bg-white/5"
+                            )}
+                          >
+                            {p === 'piper' ? t.ttsPiper : t.ttsElevenlabs}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {ttsProvider === 'elevenlabs' ? (
+                      <div className="space-y-5">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-500 uppercase">{t.ttsApiKey}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              placeholder="xi-..."
+                              value={apiKeys.elevenlabs || ''}
+                              className="flex-1 bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200 outline-none focus:border-[#FDFD96]"
+                              onChange={(e) => setApiKeys(p => ({ ...p, elevenlabs: e.target.value }))}
+                            />
+                            <button
+                              onClick={() => handleSaveKey('elevenlabs', apiKeys.elevenlabs)}
+                              disabled={!isKeyDirty('elevenlabs')}
+                              className={clsx(
+                                "px-3 py-1 border rounded-lg text-xs transition-all",
+                                isKeyDirty('elevenlabs')
+                                  ? "bg-[#FDFD96] text-black hover:bg-transparent hover:text-white border-[#FDFD96]"
+                                  : "bg-white/5 text-gray-500 border-white/10 cursor-not-allowed"
+                              )}
+                            >
+                              {isKeyDirty('elevenlabs') ? t.save : t.saved}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-500 uppercase">{t.ttsVoiceId}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="21m00Tcm4TlvDq8ikWAM"
+                              value={ttsElevenLabsVoiceId || ''}
+                              className="flex-1 bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200 outline-none focus:border-[#FDFD96]"
+                              onChange={(e) => setTtsElevenLabsVoiceId(e.target.value)}
+                            />
+                            <button
+                              onClick={handleSaveElevenLabsVoiceId}
+                              disabled={!isElevenLabsVoiceIdDirty()}
+                              className={clsx(
+                                "px-3 py-1 border rounded-lg text-xs transition-all",
+                                isElevenLabsVoiceIdDirty()
+                                  ? "bg-[#FDFD96] text-black hover:bg-transparent hover:text-white border-[#FDFD96]"
+                                  : "bg-white/5 text-gray-500 border-white/10 cursor-not-allowed"
+                              )}
+                            >
+                              {isElevenLabsVoiceIdDirty() ? t.save : t.saved}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <label className="text-xs font-bold text-gray-500 uppercase">{t.ttsVoice}</label>
+                        <select
+                          value={ttsVoiceId || ''}
+                          onChange={(e) => handleTtsVoiceChange(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200 outline-none focus:border-[#FDFD96]"
+                        >
+                          {ttsVoiceOptions.length === 0 ? (
+                            <option value="">No voices found</option>
+                          ) : (
+                            ttsVoiceOptions.map((voice) => (
+                              <option key={voice.voice_id} value={voice.voice_id}>
+                                {voice.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1524,27 +1774,27 @@ const Home: NextPage = () => {
                     <div className="w-1 h-4 bg-everlast-secondary rounded-full" />
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">{t.preset}</label>
                   </div>
-                  <div className="relative group">
-                    <select
-                      value={activePreset || ''}
-                      onChange={(e) => {
-                        const newVal = e.target.value
-                        setActivePreset(newVal)
-                        window.electronAPI?.setActivePreset(newVal)
-                      }}
-                      className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-gray-200 outline-none transition-all hover:border-everlast-secondary/50 focus:border-everlast-secondary focus:ring-1 focus:ring-everlast-secondary/20 appearance-none"
-                    >
-                      {availableModels.presets?.map((p: string) => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
-                      <ChevronRight className="w-4 h-4 rotate-90" />
-                    </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(availableModels.presets || []).map((preset: string) => (
+                      <button
+                        key={preset}
+                        onClick={() => {
+                          setActivePreset(preset)
+                          window.electronAPI?.setActivePreset(preset)
+                        }}
+                        className={clsx(
+                          "py-2 px-3 rounded-lg text-sm font-medium border transition-all",
+                          activePreset === preset
+                            ? "bg-everlast-secondary/20 border-everlast-secondary text-white"
+                            : "bg-everlast-surface border-white/10 text-gray-400 hover:bg-white/5"
+                        )}
+                      >
+                        {preset}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-white/10 text-xs text-gray-600">
-            ENRICH v1.0.0
-                </div>
                   </div>
                 </motion.div>
               )}
@@ -1602,6 +1852,10 @@ const Home: NextPage = () => {
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+
+          <div className="pt-6 border-t border-white/10 text-xs text-gray-600">
+            ENRICH v1.0.0
           </div>
         </div>
       </SettingsDrawer>

@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const { spawnSync } = require('child_process');
+const fetch = require('node-fetch');
 
 const resolveBundledPiperRoot = () => {
   const resourcesPath = process.resourcesPath || '';
@@ -15,6 +16,13 @@ const resolveBundledPiperRoot = () => {
 
 const bundledPiperRoot = resolveBundledPiperRoot();
 const voicesPath = process.env.PIPER_VOICES_PATH || path.join(bundledPiperRoot, 'voices.json');
+const allowedProviders = new Set(['piper', 'elevenlabs']);
+let activeProvider = (process.env.TTS_PROVIDER || 'piper').toLowerCase();
+if (!allowedProviders.has(activeProvider)) {
+  activeProvider = 'piper';
+}
+let elevenLabsKey = process.env.ELEVENLABS_API_KEY || null;
+let elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID || null;
 const defaultLangMap = {
   de: 'de',
   en: 'en'
@@ -122,9 +130,46 @@ const buildPiperEnv = (piperCmd) => {
   return env;
 };
 
+const synthesizeElevenLabs = async (text) => {
+  if (!elevenLabsKey) {
+    throw new Error('ElevenLabs API key not configured.');
+  }
+  if (!elevenLabsVoiceId) {
+    throw new Error('ElevenLabs voice ID not configured.');
+  }
+  const outputDir = path.join(os.tmpdir(), 'enrich', 'tts');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+  const outputPath = path.join(outputDir, `tts_${Date.now()}.wav`);
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'audio/wav',
+      'xi-api-key': elevenLabsKey
+    },
+    body: JSON.stringify({ text })
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText.trim() || `ElevenLabs request failed: ${response.statusText}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(outputPath, buffer);
+  return outputPath;
+};
+
 const synthesize = async (text, options = {}) => {
   if (!text || typeof text !== 'string') {
     throw new Error('No text provided for TTS.');
+  }
+  let provider = String(options.provider || activeProvider || 'piper').toLowerCase();
+  if (!allowedProviders.has(provider)) {
+    provider = 'piper';
+  }
+  if (provider === 'elevenlabs') {
+    return synthesizeElevenLabs(text);
   }
   const voice = resolveVoiceForLanguage(options.language);
   if (!voice) {
@@ -189,6 +234,37 @@ module.exports = {
   synthesize,
   resolveVoices,
   resolveVoiceForLanguage,
+  setActiveProvider: (providerName) => {
+    if (!providerName || typeof providerName !== 'string') {
+      return false;
+    }
+    const normalized = providerName.toLowerCase();
+    if (!allowedProviders.has(normalized)) {
+      return false;
+    }
+    activeProvider = normalized;
+    process.env.TTS_PROVIDER = normalized;
+    return true;
+  },
+  getActiveProvider: () => activeProvider,
+  setElevenLabsKey: (apiKey) => {
+    if (apiKey && typeof apiKey === 'string') {
+      elevenLabsKey = apiKey;
+      process.env.ELEVENLABS_API_KEY = apiKey;
+      return true;
+    }
+    return false;
+  },
+  setElevenLabsVoiceId: (voiceId) => {
+    if (voiceId && typeof voiceId === 'string') {
+      elevenLabsVoiceId = voiceId.trim();
+      process.env.ELEVENLABS_VOICE_ID = elevenLabsVoiceId;
+      return true;
+    }
+    return false;
+  },
+  getElevenLabsVoiceId: () => elevenLabsVoiceId,
+  isElevenLabsConfigured: () => Boolean(elevenLabsKey && elevenLabsVoiceId),
   setVoiceForLanguage: (language, voiceId) => {
     if (!language || !voiceId) {
       return false;
