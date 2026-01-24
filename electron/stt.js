@@ -10,6 +10,7 @@ class SpeechToText {
     this.modelPath = null;   // Path to model file
     this.modelName = (process.env.WHISPER_MODEL || 'small').toLowerCase();
     this.activeProvider = (process.env.STT_PROVIDER || 'whisper').toLowerCase();
+    this.whisperEngine = (process.env.WHISPER_ENGINE || 'faster-whisper').toLowerCase();
     this.deepgramKey = process.env.DEEPGRAM_API_KEY || null;
     this.tempDir = path.join(require('os').tmpdir(), 'enrich');
     this.streamState = null;
@@ -23,6 +24,9 @@ class SpeechToText {
   async initialize() {
     if (this.activeProvider === 'deepgram') {
       return Boolean(this.deepgramKey);
+    }
+    if (this.whisperEngine === 'faster-whisper') {
+      return Boolean(this.resolveFasterWhisperPython());
     }
     const resourcesPath = process.resourcesPath || '';
     const bundledWhisperRoot = resourcesPath ? path.join(resourcesPath, 'whisper') : null;
@@ -91,6 +95,9 @@ class SpeechToText {
         if (this.activeProvider === 'deepgram') {
           throw new Error('Deepgram API key not configured.');
         }
+        if (this.whisperEngine === 'faster-whisper') {
+          throw new Error('Faster-Whisper is not available. Run scripts/setup-faster-whisper.sh or set WHISPER_ENGINE=whisper.cpp.');
+        }
         throw new Error('Whisper is not initialized. Check installation and model path.');
       }
 
@@ -99,7 +106,9 @@ class SpeechToText {
       const outputBase = audioFile.replace(/\.wav$/, '');
       const outputTextFile = `${outputBase}.txt`;
       const normalizedBuffer = this.ensureWavHeader(audioBuffer);
-      fs.writeFileSync(audioFile, normalizedBuffer);
+      this.logWavHeader(normalizedBuffer);
+      const tunedBuffer = this.normalizeAudio(normalizedBuffer);
+      fs.writeFileSync(audioFile, tunedBuffer);
       const sampleBytes = normalizedBuffer.length > 44 ? (normalizedBuffer.length - 44) : normalizedBuffer.length;
       const durationSec = Math.max(0, sampleBytes / (16000 * 2));
       if (this.activeProvider === 'deepgram') {
@@ -114,7 +123,19 @@ class SpeechToText {
         return transcript;
       }
 
-      // Prepare whisper command
+      if (this.whisperEngine === 'faster-whisper') {
+        const transcript = await this.transcribeWithFasterWhisper(audioFile);
+        if (process.env.WHISPER_KEEP_FILES !== '1') {
+          try {
+            fs.unlinkSync(audioFile);
+          } catch (error) {
+            console.warn('Failed to clean up temp file:', error);
+          }
+        }
+        return transcript;
+      }
+
+      // Prepare whisper.cpp command
       const args = [
         '-m', this.modelPath,
         '-f', audioFile,
@@ -123,6 +144,8 @@ class SpeechToText {
         '-otxt',             // Output text only
         '--no-timestamps'    // Don't include timestamps
       ];
+      const defaultWhisperArgs = ['--beam-size', '5', '--best-of', '5', '--temperature', '0.0'];
+      args.push(...defaultWhisperArgs);
       if (process.env.WHISPER_NO_GPU === '1') {
         args.push('--no-gpu');
       }
@@ -232,6 +255,70 @@ class SpeechToText {
     }
   }
 
+  resolveFasterWhisperPython() {
+    const resourcesPath = process.resourcesPath || '';
+    const bundledRoot = resourcesPath ? path.join(resourcesPath, 'faster-whisper') : null;
+    const candidates = [
+      process.env.FASTER_WHISPER_PYTHON,
+      bundledRoot ? path.join(bundledRoot, 'venv', 'bin', 'python') : null,
+      path.join(process.cwd(), 'assets', 'faster-whisper', 'venv', 'bin', 'python'),
+      path.join(process.cwd(), 'assets', 'faster-whisper', 'venv', 'bin', 'python3'),
+      path.join(process.cwd(), 'assets', 'faster-whisper', 'venv', 'bin', 'python3.11')
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  async transcribeWithFasterWhisper(audioFile) {
+    const pythonPath = this.resolveFasterWhisperPython();
+    if (!pythonPath) {
+      throw new Error('Faster-Whisper python not found. Install in assets/faster-whisper/venv or set FASTER_WHISPER_PYTHON.');
+    }
+    const scriptPath = path.join(__dirname, 'fw_runner.py');
+    const resourcesPath = process.resourcesPath || '';
+    const bundledRoot = resourcesPath ? path.join(resourcesPath, 'faster-whisper') : null;
+    const bundledModelPath = bundledRoot ? path.join(bundledRoot, 'models', 'base') : null;
+    const devModelPath = path.join(process.cwd(), 'assets', 'faster-whisper', 'models', 'base');
+    const modelPath = process.env.WHISPER_FW_MODEL_PATH
+      || (bundledModelPath && fs.existsSync(bundledModelPath) ? bundledModelPath : null)
+      || (fs.existsSync(devModelPath) ? devModelPath : null);
+    const env = {
+      ...process.env,
+      WHISPER_FW_LANGUAGE: process.env.WHISPER_LANGUAGE || '',
+      WHISPER_FW_MODEL_PATH: modelPath || ''
+    };
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn(pythonPath, [scriptPath, audioFile], { stdio: ['ignore', 'pipe', 'pipe'], env });
+      let output = '';
+      let errorOutput = '';
+
+      proc.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
+      proc.on('error', (error) => {
+        reject(new Error(`Failed to run faster-whisper: ${error.message}`));
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(errorOutput.trim() || 'Faster-Whisper failed to transcribe audio.'));
+          return;
+        }
+        resolve(output.trim());
+      });
+    });
+  }
+
   ensureWavHeader(buffer) {
     const sampleRate = 16000;
     const channels = 1;
@@ -282,6 +369,79 @@ class SpeechToText {
 
     const header = buildHeader(buffer.length);
     return Buffer.concat([header, buffer]);
+  }
+
+  normalizeAudio(buffer) {
+    if (buffer.length < 44) {
+      return buffer;
+    }
+    const riff = buffer.toString('ascii', 0, 4);
+    const wave = buffer.toString('ascii', 8, 12);
+    if (riff !== 'RIFF' || wave !== 'WAVE') {
+      return buffer;
+    }
+    const audioFormat = buffer.readUInt16LE(20);
+    const bitDepth = buffer.readUInt16LE(34);
+    if (audioFormat !== 1 || bitDepth !== 16) {
+      return buffer;
+    }
+    const dataIndex = buffer.indexOf('data');
+    if (dataIndex === -1 || dataIndex + 8 > buffer.length) {
+      return buffer;
+    }
+    const dataSize = buffer.readUInt32LE(dataIndex + 4);
+    const dataStart = dataIndex + 8;
+    const available = buffer.length - dataStart;
+    const pcmLength = Math.min(dataSize || available, available);
+    if (pcmLength < 2) {
+      return buffer;
+    }
+    let peak = 0;
+    const sampleCount = Math.floor(pcmLength / 2);
+    for (let i = 0; i < sampleCount; i += 1) {
+      const sample = buffer.readInt16LE(dataStart + i * 2) / 32768;
+      const abs = Math.abs(sample);
+      if (abs > peak) {
+        peak = abs;
+      }
+    }
+    if (!peak || peak >= 0.2) {
+      return buffer;
+    }
+    const gain = Math.min(0.8 / peak, 10);
+    const tuned = Buffer.from(buffer);
+    for (let i = 0; i < sampleCount; i += 1) {
+      const offset = dataStart + i * 2;
+      const sample = tuned.readInt16LE(offset);
+      let next = Math.round(sample * gain);
+      if (next > 32767) next = 32767;
+      if (next < -32768) next = -32768;
+      tuned.writeInt16LE(next, offset);
+    }
+    console.log(`Applied audio gain: ${gain.toFixed(2)}x`);
+    return tuned;
+  }
+
+  logWavHeader(buffer) {
+    if (buffer.length < 44) {
+      console.log(`WAV header: buffer too short (${buffer.length} bytes)`);
+      return;
+    }
+    const riff = buffer.toString('ascii', 0, 4);
+    const wave = buffer.toString('ascii', 8, 12);
+    if (riff !== 'RIFF' || wave !== 'WAVE') {
+      console.log('WAV header: missing RIFF/WAVE');
+      return;
+    }
+    const audioFormat = buffer.readUInt16LE(20);
+    const channels = buffer.readUInt16LE(22);
+    const sampleRate = buffer.readUInt32LE(24);
+    const bitDepth = buffer.readUInt16LE(34);
+    const dataIndex = buffer.indexOf('data');
+    const dataSize = dataIndex !== -1 && dataIndex + 8 <= buffer.length
+      ? buffer.readUInt32LE(dataIndex + 4)
+      : null;
+    console.log(`WAV header: format=${audioFormat} channels=${channels} rate=${sampleRate} depth=${bitDepth} dataSize=${dataSize ?? 'n/a'}`);
   }
 
   async transcribeWithDeepgram(audioBuffer, durationSec) {
