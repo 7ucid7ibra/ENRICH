@@ -14,14 +14,14 @@ def main() -> int:
         return 1
 
     audio_path = sys.argv[1]
-    model_path = os.environ.get("WHISPER_FW_MODEL_PATH")
-    model_name = model_path or os.environ.get("WHISPER_FW_MODEL", "base")
+    model_name = os.environ.get("WHISPER_FW_MODEL", "base")
+    model_root = os.environ.get("WHISPER_FW_MODEL_ROOT") or None
     device = os.environ.get("WHISPER_FW_DEVICE", "cpu")
     compute_type = os.environ.get("WHISPER_FW_COMPUTE", "int8")
     language = os.environ.get("WHISPER_FW_LANGUAGE") or None
 
     try:
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        model = WhisperModel(model_name, device=device, compute_type=compute_type, download_root=model_root)
         segments, _info = model.transcribe(audio_path, beam_size=5, language=language)
         text = " ".join(segment.text for segment in segments).strip()
         print(text)

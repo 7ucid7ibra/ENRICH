@@ -12,6 +12,12 @@ const llm = require('./llm');
 const ipc = require('./ipc');
 
 function createWindow() {
+  if (process.platform === 'darwin' && isDev) {
+    const devIcon = path.join(__dirname, '..', 'assets', 'icon.png');
+    if (devIcon && require('fs').existsSync(devIcon)) {
+      app.dock.setIcon(devIcon);
+    }
+  }
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -108,6 +114,12 @@ async function processAudio(audioBuffer) {
     
     // Transcribe audio
     const transcription = await stt.transcribe(audioBuffer);
+    if (!transcription || !transcription.trim()) {
+      mainWindow.webContents.send('processing-error', {
+        error: 'Transcription was empty. Check faster-whisper setup or try a longer recording.'
+      });
+      return;
+    }
     mainWindow.webContents.send('transcription-raw', { text: transcription, final: !(ipc.getAutoEnrich && ipc.getAutoEnrich()) });
     
     if (ipc.getAutoEnrich && !ipc.getAutoEnrich()) {
@@ -152,9 +164,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 
 app.on('will-quit', () => {

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { app } = require('electron');
 const fetch = require('node-fetch');
 const WebSocket = require('ws');
 
@@ -106,7 +107,6 @@ class SpeechToText {
       const outputBase = audioFile.replace(/\.wav$/, '');
       const outputTextFile = `${outputBase}.txt`;
       const normalizedBuffer = this.ensureWavHeader(audioBuffer);
-      this.logWavHeader(normalizedBuffer);
       const tunedBuffer = this.normalizeAudio(normalizedBuffer);
       fs.writeFileSync(audioFile, tunedBuffer);
       const sampleBytes = normalizedBuffer.length > 44 ? (normalizedBuffer.length - 44) : normalizedBuffer.length;
@@ -273,23 +273,90 @@ class SpeechToText {
     return null;
   }
 
+  resolveFasterWhisperModelRoot() {
+    const resourcesPath = process.resourcesPath || '';
+    const bundledRoot = resourcesPath ? path.join(resourcesPath, 'faster-whisper', 'models') : null;
+    const devRoot = path.join(process.cwd(), 'assets', 'faster-whisper', 'models');
+    const userRoot = app && app.getPath
+      ? path.join(app.getPath('userData'), 'faster-whisper', 'models')
+      : null;
+
+    if (userRoot && this.directoryHasModel(userRoot)) {
+      return userRoot;
+    }
+
+    if (userRoot && bundledRoot && fs.existsSync(bundledRoot)) {
+      this.copyDirectory(bundledRoot, userRoot);
+      if (this.directoryHasModel(userRoot)) {
+        return userRoot;
+      }
+    }
+
+    if (bundledRoot && fs.existsSync(bundledRoot)) {
+      return bundledRoot;
+    }
+
+    if (fs.existsSync(devRoot)) {
+      return devRoot;
+    }
+
+    return null;
+  }
+
+  directoryHasModel(rootPath) {
+    if (!rootPath || !fs.existsSync(rootPath)) {
+      return false;
+    }
+    const entries = fs.readdirSync(rootPath);
+    return entries.some((entry) => entry.startsWith('models--Systran--faster-whisper-'));
+  }
+
+  copyDirectory(source, destination) {
+    if (!source || !destination || !fs.existsSync(source)) {
+      return;
+    }
+    if (fs.existsSync(destination) && fs.readdirSync(destination).length > 0) {
+      return;
+    }
+    fs.mkdirSync(destination, { recursive: true });
+    if (typeof fs.cpSync === 'function') {
+      fs.cpSync(source, destination, { recursive: true });
+      return;
+    }
+    const entries = fs.readdirSync(source, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(source, entry.name);
+      const destPath = path.join(destination, entry.name);
+      if (entry.isDirectory()) {
+        this.copyDirectory(srcPath, destPath);
+      } else if (entry.isFile()) {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
   async transcribeWithFasterWhisper(audioFile) {
     const pythonPath = this.resolveFasterWhisperPython();
     if (!pythonPath) {
       throw new Error('Faster-Whisper python not found. Install in assets/faster-whisper/venv or set FASTER_WHISPER_PYTHON.');
     }
-    const scriptPath = path.join(__dirname, 'fw_runner.py');
     const resourcesPath = process.resourcesPath || '';
-    const bundledRoot = resourcesPath ? path.join(resourcesPath, 'faster-whisper') : null;
-    const bundledModelPath = bundledRoot ? path.join(bundledRoot, 'models', 'base') : null;
-    const devModelPath = path.join(process.cwd(), 'assets', 'faster-whisper', 'models', 'base');
-    const modelPath = process.env.WHISPER_FW_MODEL_PATH
-      || (bundledModelPath && fs.existsSync(bundledModelPath) ? bundledModelPath : null)
-      || (fs.existsSync(devModelPath) ? devModelPath : null);
+    const bundledScript = resourcesPath ? path.join(resourcesPath, 'fw_runner.py') : null;
+    const scriptPath = bundledScript && fs.existsSync(bundledScript)
+      ? bundledScript
+      : path.join(__dirname, 'fw_runner.py');
+    const modelRoot = process.env.WHISPER_FW_MODEL_ROOT || this.resolveFasterWhisperModelRoot();
+    if (!modelRoot) {
+      throw new Error('Faster-Whisper model root not found. Rebuild after running scripts/setup-faster-whisper.sh.');
+    }
     const env = {
       ...process.env,
       WHISPER_FW_LANGUAGE: process.env.WHISPER_LANGUAGE || '',
-      WHISPER_FW_MODEL_PATH: modelPath || ''
+      WHISPER_FW_MODEL: process.env.WHISPER_FW_MODEL || 'base',
+      WHISPER_FW_MODEL_ROOT: modelRoot,
+      HF_HOME: modelRoot,
+      TRANSFORMERS_CACHE: modelRoot,
+      HF_HUB_OFFLINE: '1'
     };
 
     return new Promise((resolve, reject) => {
@@ -310,11 +377,17 @@ class SpeechToText {
       });
 
       proc.on('close', (code) => {
+        const trimmedOutput = output.trim();
+        const trimmedError = errorOutput.trim();
         if (code !== 0) {
           reject(new Error(errorOutput.trim() || 'Faster-Whisper failed to transcribe audio.'));
           return;
         }
-        resolve(output.trim());
+        if (!trimmedOutput) {
+          reject(new Error(trimmedError || 'Faster-Whisper returned empty output.'));
+          return;
+        }
+        resolve(trimmedOutput);
       });
     });
   }
@@ -418,30 +491,7 @@ class SpeechToText {
       if (next < -32768) next = -32768;
       tuned.writeInt16LE(next, offset);
     }
-    console.log(`Applied audio gain: ${gain.toFixed(2)}x`);
     return tuned;
-  }
-
-  logWavHeader(buffer) {
-    if (buffer.length < 44) {
-      console.log(`WAV header: buffer too short (${buffer.length} bytes)`);
-      return;
-    }
-    const riff = buffer.toString('ascii', 0, 4);
-    const wave = buffer.toString('ascii', 8, 12);
-    if (riff !== 'RIFF' || wave !== 'WAVE') {
-      console.log('WAV header: missing RIFF/WAVE');
-      return;
-    }
-    const audioFormat = buffer.readUInt16LE(20);
-    const channels = buffer.readUInt16LE(22);
-    const sampleRate = buffer.readUInt32LE(24);
-    const bitDepth = buffer.readUInt16LE(34);
-    const dataIndex = buffer.indexOf('data');
-    const dataSize = dataIndex !== -1 && dataIndex + 8 <= buffer.length
-      ? buffer.readUInt32LE(dataIndex + 4)
-      : null;
-    console.log(`WAV header: format=${audioFormat} channels=${channels} rate=${sampleRate} depth=${bitDepth} dataSize=${dataSize ?? 'n/a'}`);
   }
 
   async transcribeWithDeepgram(audioBuffer, durationSec) {

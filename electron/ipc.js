@@ -547,6 +547,12 @@ async function processAudio(audioBuffer) {
     
     // Transcribe audio
     const transcription = await stt.transcribe(audioBuffer);
+    if (!transcription || !transcription.trim()) {
+      safeSend('processing-error', {
+        error: 'Transcription was empty. Check faster-whisper setup or try a longer recording.'
+      });
+      return;
+    }
     safeSend('transcription-raw', { text: transcription, final: !autoEnrich });
     
     if (!autoEnrich) {

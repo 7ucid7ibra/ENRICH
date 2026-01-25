@@ -5,8 +5,6 @@ const path = require('path');
 let recording = null;
 let audioChunks = [];
 let stopping = false;
-const DEFAULT_SAMPLE_RATE = 16000;
-const DEFAULT_CHANNELS = 1;
 
 class AudioRecorder {
   constructor() {
@@ -28,19 +26,27 @@ class AudioRecorder {
       const audioType = options?.audioType || 'wav';
       const silence = options?.silence;
       const device = process.env.RECORD_DEVICE || process.env.AUDIO_DEVICE || null;
-      const recorderName = process.env.RECORD_PROGRAM || 'sox';
+      const soxPath = resolveBundledSox();
+      if (soxPath) {
+        const soxDir = path.dirname(soxPath);
+        const currentPath = process.env.PATH || '';
+        if (!currentPath.split(path.delimiter).includes(soxDir)) {
+          process.env.PATH = `${soxDir}${path.delimiter}${currentPath}`;
+        }
+      }
+      const recorderName = 'sox';
       
       recording = record.record({
         sampleRateHertz: this.sampleRate,
         threshold: 0,
         verbose: false,
-        recordProgram: recorderName,
+        recorder: recorderName,
         silence: silence !== undefined ? silence : '1.0',
         channels: this.channels,
         audioType: audioType,
         device: device
       });
-      console.log(`Audio device: ${device || 'default'} (${recorderName})`);
+      console.log(`Audio device: ${device || 'default'} (${soxPath || 'sox'})`);
 
       const stream = recording.stream();
       stream.on('data', (chunk) => {
@@ -88,7 +94,6 @@ class AudioRecorder {
         resolved = true;
 
         const audioBuffer = Buffer.concat(audioChunks);
-        logAudioStats(audioBuffer);
         recording = null;
         stopping = false;
         audioChunks = [];
@@ -149,43 +154,17 @@ class AudioRecorder {
   }
 }
 
-function logAudioStats(buffer) {
-  const headerOffset = getWavHeaderOffset(buffer);
-  const pcm = buffer.slice(headerOffset);
-  if (pcm.length < 2) {
-    console.warn('Audio stats: empty buffer');
-    return;
+function resolveBundledSox() {
+  const resourcesPath = process.resourcesPath || '';
+  const bundledSox = resourcesPath ? path.join(resourcesPath, 'sox', 'sox') : null;
+  if (bundledSox && fs.existsSync(bundledSox)) {
+    return bundledSox;
   }
-  let peak = 0;
-  let sumSquares = 0;
-  const samples = Math.floor(pcm.length / 2);
-  for (let i = 0; i < samples; i += 1) {
-    const sample = pcm.readInt16LE(i * 2) / 32768;
-    const abs = Math.abs(sample);
-    if (abs > peak) {
-      peak = abs;
-    }
-    sumSquares += sample * sample;
+  const devSox = path.join(process.cwd(), 'assets', 'sox', 'sox');
+  if (fs.existsSync(devSox)) {
+    return devSox;
   }
-  const rms = Math.sqrt(sumSquares / samples);
-  const durationSec = samples / (DEFAULT_SAMPLE_RATE * DEFAULT_CHANNELS);
-  console.log(`Audio stats: duration=${durationSec.toFixed(2)}s rms=${rms.toFixed(4)} peak=${peak.toFixed(4)}`);
-}
-
-function getWavHeaderOffset(buffer) {
-  if (buffer.length < 12) {
-    return 0;
-  }
-  const riff = buffer.toString('ascii', 0, 4);
-  const wave = buffer.toString('ascii', 8, 12);
-  if (riff === 'RIFF' && wave === 'WAVE') {
-    const dataIndex = buffer.indexOf('data');
-    if (dataIndex !== -1) {
-      return Math.min(dataIndex + 8, buffer.length);
-    }
-    return Math.min(44, buffer.length);
-  }
-  return 0;
+  return null;
 }
 
 module.exports = new AudioRecorder();

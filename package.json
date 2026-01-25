@@ -32,7 +32,8 @@
   "build": {
     "appId": "com.enrich.app",
     "productName": "ENRICH",
-    "icon": "assets/icon.svg",
+    "icon": "assets/icon.png",
+    "afterPack": "scripts/after-pack.js",
     "directories": {
       "output": "dist"
     },
@@ -46,12 +47,20 @@
         "to": "whisper/models/ggml-small.bin"
       },
       {
+        "from": "electron/fw_runner.py",
+        "to": "fw_runner.py"
+      },
+      {
         "from": "assets/faster-whisper",
         "to": "faster-whisper"
       },
       {
         "from": "assets/piper",
         "to": "piper"
+      },
+      {
+        "from": "assets/sox",
+        "to": "sox"
       }
     ],
     "files": [
@@ -62,7 +71,12 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "identity": null
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "ENRICH needs microphone access to record and transcribe audio."
+      }
     },
     "win": {
       "target": "nsis"
