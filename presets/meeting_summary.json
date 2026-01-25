@@ -1,0 +1,12 @@
+{
+  "name": "Meeting Summary",
+  "type": "meeting_summary",
+  "description": "Structured summary of meeting transcriptions",
+  "system_prompt": "You are an intelligent assistant that processes meeting transcriptions and creates structured meeting summaries.",
+  "prompt": "Please process the following meeting transcription and provide:\n\n1. A concise summary of the meeting\n2. Key points discussed\n3. Action items with owners (if identifiable)\n\nWrite SUMMARY, KEY POINTS, and ACTION ITEMS in {output_language}.\n\nFormat your response clearly with these sections:\n\nSUMMARY:\n[meeting summary here]\n\nKEY POINTS:\n- [key point 1]\n- [key point 2]\n- [etc.]\n\nACTION ITEMS:\n- [action item 1] [owner if mentioned]\n- [action item 2] [owner if mentioned]\n- [etc.]\n\nMeeting transcription to process:\n{text}",
+  "output_format": {
+    "summary": "string",
+    "key_points": "array",
+    "action_items": "array"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "name": "enrich",
+  "version": "0.0.18",
+  "description": "ENRICH desktop app for voice capture, transcription, and AI enrichment",
+  "main": "electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:electron\"",
+    "dev:frontend": "cd frontend && PORT=${DEV_PORT:-3000} npm run dev",
+    "dev:electron": "wait-on http://localhost:${DEV_PORT:-3000} && electron .",
+    "preflight": "bash scripts/preflight.sh",
+    "setup:whisper": "bash scripts/setup-whisper.sh",
+    "bootstrap": "bash scripts/bootstrap.sh",
+    "build": "npm run build:frontend && npm run build:electron",
+    "build:frontend": "cd frontend && npm run build",
+    "build:electron": "electron-builder",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "form-data": "^4.0.0",
+    "node-record-lpcm16": "^1.0.1",
+    "node-fetch": "^2.6.9",
+    "openai": "^4.24.0",
+    "ws": "^8.18.0"
+  },
+  "build": {
+    "appId": "com.enrich.app",
+    "productName": "ENRICH",
+    "icon": "assets/icon.png",
+    "afterPack": "scripts/after-pack.js",
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": "whisper.cpp/build/bin/whisper-cli",
+        "to": "whisper/whisper-cli"
+      },
+      {
+        "from": "whisper.cpp/models/ggml-small.bin",
+        "to": "whisper/models/ggml-small.bin"
+      },
+      {
+        "from": "electron/fw_runner.py",
+        "to": "fw_runner.py"
+      },
+      {
+        "from": "assets/faster-whisper",
+        "to": "faster-whisper"
+      },
+      {
+        "from": "assets/piper",
+        "to": "piper"
+      },
+      {
+        "from": "assets/sox",
+        "to": "sox"
+      }
+    ],
+    "files": [
+      "electron/**/*",
+      "frontend/out/**/*",
+      "presets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "ENRICH needs microphone access to record and transcribe audio."
+      }
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

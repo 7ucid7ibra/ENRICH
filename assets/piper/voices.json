@@ -1,0 +1,37 @@
+{
+  "voices": [
+    {
+      "voice_id": "en_US-ryan-medium",
+      "name": "English (US) - Ryan (Medium)",
+      "model_path": "models/en_US-ryan-medium.onnx",
+      "config_path": "models/en_US-ryan-medium.onnx.json",
+      "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx",
+      "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json",
+      "language": "en_US",
+      "quality": "medium",
+      "gender": null
+    },
+    {
+      "voice_id": "de_DE-thorsten-medium",
+      "name": "German (DE) - Thorsten (Medium)",
+      "model_path": "models/de_DE-thorsten-medium.onnx",
+      "config_path": "models/de_DE-thorsten-medium.onnx.json",
+      "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
+      "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json",
+      "language": "de_DE",
+      "quality": "medium",
+      "gender": null
+    },
+    {
+      "voice_id": "de_DE-mls-medium",
+      "name": "de_DE - mls (medium)",
+      "model_path": "models/de_DE-mls-medium.onnx",
+      "config_path": "models/de_DE-mls-medium.onnx.json",
+      "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx?download=true",
+      "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx.json?download=true",
+      "language": "de_DE",
+      "quality": "medium",
+      "gender": null
+    }
+  ]
+}

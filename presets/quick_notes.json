@@ -1,0 +1,12 @@
+{
+  "name": "Quick Notes",
+  "type": "quick_notes",
+  "description": "Quick correction and summarization of voice notes",
+  "system_prompt": "You are an intelligent assistant that processes voice transcriptions and creates clean, structured notes.",
+  "prompt": "Please process the following voice transcription and provide:\n\n1. A corrected version of the text (fix grammar, punctuation, and obvious errors)\n2. A brief summary (2-4 sentences)\n3. Key bullet points\n\nKeep CORRECTED TEXT in the original language. Write SUMMARY and KEY POINTS in {output_language}.\n\nFormat your response clearly with these sections:\n\nCORRECTED TEXT:\n[corrected version here]\n\nSUMMARY:\n[2-4 sentence summary here]\n\nKEY POINTS:\n- [bullet point 1]\n- [bullet point 2]\n- [etc.]\n\nTranscription to process:\n{text}",
+  "output_format": {
+    "corrected_text": "string",
+    "summary": "string", 
+    "bullet_points": "array"
+  }
+}
