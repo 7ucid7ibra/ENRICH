@@ -254,6 +254,8 @@ const Home: NextPage = () => {
   const qaInputRef = useRef<HTMLDivElement>(null)
   const qaInputMobileRef = useRef<HTMLDivElement>(null)
   const lastAssistantIndexRef = useRef(-1)
+  const suppressMainTranscriptionRef = useRef(false)
+  const chatSuppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tRef = useRef(t)
   const isProcessingRef = useRef(isProcessing)
   const lastResultRef = useRef(lastResult)
@@ -279,6 +281,21 @@ const Home: NextPage = () => {
     }
     return -1
   })()
+
+  const clearChatSuppressTimer = () => {
+    if (chatSuppressTimerRef.current) {
+      clearTimeout(chatSuppressTimerRef.current)
+      chatSuppressTimerRef.current = null
+    }
+  }
+
+  const scheduleMainTranscriptionResume = () => {
+    clearChatSuppressTimer()
+    chatSuppressTimerRef.current = setTimeout(() => {
+      suppressMainTranscriptionRef.current = false
+      chatSuppressTimerRef.current = null
+    }, 1500)
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -419,6 +436,9 @@ const Home: NextPage = () => {
     }
 
     const onProcessingStatus = (status: ProcessingStatus) => {
+      if (suppressMainTranscriptionRef.current) {
+        return
+      }
       const currentT = tRef.current
       let localizedMsg = status.message
       if (status.stage === 'transcribing') localizedMsg = currentT.transcribing
@@ -434,6 +454,9 @@ const Home: NextPage = () => {
     }
 
     const onTranscriptionResult = (result: TranscriptionResult) => {
+      if (suppressMainTranscriptionRef.current) {
+        return
+      }
       setLastResult(result)
       setRawTranscription(result.original || '')
       setIsProcessing(false)
@@ -452,6 +475,9 @@ const Home: NextPage = () => {
     }
 
     const onTranscriptionRaw = (data: { text: string; final?: boolean }) => {
+      if (suppressMainTranscriptionRef.current) {
+        return
+      }
       const nextText = data.text || (data.final && hadLiveUpdateRef.current ? rawTranscriptionRef.current : '')
       setRawTranscription(nextText)
       if (data.final) {
@@ -467,6 +493,9 @@ const Home: NextPage = () => {
     }
 
     const onTranscriptionLive = (data: { text: string }) => {
+      if (suppressMainTranscriptionRef.current) {
+        return
+      }
       setRawTranscription(data.text || '')
       if (!isProcessingRef.current) {
         setCurrentStep('transcribe')
@@ -475,19 +504,30 @@ const Home: NextPage = () => {
     }
 
     const onProcessingError = (errorData: { error: string }) => {
+      if (suppressMainTranscriptionRef.current) {
+        scheduleMainTranscriptionResume()
+      }
       setError(errorData.error)
       setIsProcessing(false)
       setProcessingStatus(null)
     }
 
     const onChatRecordingStatus = (status: RecordingStatus) => {
+      if (status.isRecording) {
+        suppressMainTranscriptionRef.current = true
+        clearChatSuppressTimer()
+      }
       setChatRecording(status.isRecording)
+      if (!status.isRecording) {
+        scheduleMainTranscriptionResume()
+      }
     }
 
     const onChatTranscriptionRaw = (data: { text: string; final?: boolean }) => {
       setChatInput(data.text || '')
       if (data.final) {
         setChatRecording(false)
+        scheduleMainTranscriptionResume()
       }
     }
 
@@ -626,17 +666,22 @@ const Home: NextPage = () => {
     try {
       if (chatRecording) {
         await window.electronAPI.stopChatRecording()
+        scheduleMainTranscriptionResume()
         return
       }
+      suppressMainTranscriptionRef.current = true
+      clearChatSuppressTimer()
       const result = await window.electronAPI.startChatRecording()
       if (!result?.success) {
         setChatRecording(false)
+        scheduleMainTranscriptionResume()
         setError(result?.error || 'Failed to start recording')
         return
       }
       setChatRecording(true)
     } catch (error) {
       setChatRecording(false)
+      scheduleMainTranscriptionResume()
       setError('Failed to start recording')
     }
   }
@@ -1855,7 +1900,7 @@ const Home: NextPage = () => {
           </div>
 
           <div className="pt-6 border-t border-white/10 text-xs text-gray-600">
-            ENRICH v1.0.0
+            ENRICH v0.0.18
           </div>
         </div>
       </SettingsDrawer>

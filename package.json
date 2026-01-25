@@ -1,6 +1,6 @@
 {
   "name": "enrich",
-  "version": "1.0.0",
+  "version": "0.0.18",
   "description": "ENRICH desktop app for voice capture, transcription, and AI enrichment",
   "main": "electron/main.js",
   "homepage": "./",
@@ -44,6 +44,10 @@
       {
         "from": "whisper.cpp/models/ggml-small.bin",
         "to": "whisper/models/ggml-small.bin"
+      },
+      {
+        "from": "assets/faster-whisper",
+        "to": "faster-whisper"
       },
       {
         "from": "assets/piper",
