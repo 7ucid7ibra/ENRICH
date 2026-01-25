@@ -32,12 +32,7 @@ class LLMProcessor {
     this.presetsDir = path.join(__dirname, '../presets');
     this.activePreset = 'quick_notes';
     this.outputLanguage = (process.env.LLM_OUTPUT_LANGUAGE || 'de').toLowerCase();
-    this.opencodeModels = [
-      'grok-code',
-      'big-pickle',
-      'minimax-m2.1-free',
-      'glm-4.7-free'
-    ];
+    this.opencodeModels = ['big-pickle'];
   }
 
   async initialize() {
@@ -660,7 +655,7 @@ class LLMProcessor {
       } else if (providerName === 'gemini') {
         this.activeModel = 'gemini-2.5-flash';
       } else if (providerName === 'opencode') {
-        this.activeModel = 'grok-code';
+        this.activeModel = 'big-pickle';
       }
       return true;
     }

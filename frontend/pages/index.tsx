@@ -213,6 +213,7 @@ const Home: NextPage = () => {
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
   const [chatRecording, setChatRecording] = useState(false)
+  const [chatTranscribing, setChatTranscribing] = useState(false)
 
   // Settings State
   const [availableModels, setAvailableModels] = useState<any>(null)
@@ -519,6 +520,9 @@ const Home: NextPage = () => {
       }
       setChatRecording(status.isRecording)
       if (!status.isRecording) {
+        setChatTranscribing(true)
+      }
+      if (!status.isRecording) {
         scheduleMainTranscriptionResume()
       }
     }
@@ -527,6 +531,7 @@ const Home: NextPage = () => {
       setChatInput(data.text || '')
       if (data.final) {
         setChatRecording(false)
+        setChatTranscribing(false)
         scheduleMainTranscriptionResume()
       }
     }
@@ -669,11 +674,13 @@ const Home: NextPage = () => {
         scheduleMainTranscriptionResume()
         return
       }
+      setChatTranscribing(false)
       suppressMainTranscriptionRef.current = true
       clearChatSuppressTimer()
       const result = await window.electronAPI.startChatRecording()
       if (!result?.success) {
         setChatRecording(false)
+        setChatTranscribing(false)
         scheduleMainTranscriptionResume()
         setError(result?.error || 'Failed to start recording')
         return
@@ -681,6 +688,7 @@ const Home: NextPage = () => {
       setChatRecording(true)
     } catch (error) {
       setChatRecording(false)
+      setChatTranscribing(false)
       scheduleMainTranscriptionResume()
       setError('Failed to start recording')
     }
@@ -1249,12 +1257,20 @@ const Home: NextPage = () => {
                     "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full border transition-all",
                     chatRecording
                       ? "bg-everlast-gold/10 border-everlast-gold/50 text-everlast-gold animate-pulse"
+                      : chatTranscribing
+                      ? "bg-everlast-gold/10 border-everlast-gold/40 text-everlast-gold"
                       : "bg-black/30 text-gray-300 hover:text-everlast-gold border-white/10 hover:border-everlast-gold/40"
                   )}
-                  aria-label={chatRecording ? 'Stop recording' : 'Record question'}
-                  title={chatRecording ? 'Stop recording' : 'Record question'}
+                  aria-label={chatRecording ? 'Stop recording' : chatTranscribing ? 'Transcribing' : 'Record question'}
+                  title={chatRecording ? 'Stop recording' : chatTranscribing ? 'Transcribing' : 'Record question'}
                 >
-                  {chatRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {chatRecording ? (
+                    <MicOff className="w-4 h-4" />
+                  ) : chatTranscribing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
                 </button>
                 <input
                   type="text"
@@ -1462,12 +1478,20 @@ const Home: NextPage = () => {
                     "absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full border transition-all",
                     chatRecording
                       ? "bg-everlast-gold/10 border-everlast-gold/50 text-everlast-gold animate-pulse"
+                      : chatTranscribing
+                      ? "bg-everlast-gold/10 border-everlast-gold/40 text-everlast-gold"
                       : "bg-black/30 text-gray-300 hover:text-everlast-gold border-white/10 hover:border-everlast-gold/40"
                   )}
-                  aria-label={chatRecording ? 'Stop recording' : 'Record question'}
-                  title={chatRecording ? 'Stop recording' : 'Record question'}
+                  aria-label={chatRecording ? 'Stop recording' : chatTranscribing ? 'Transcribing' : 'Record question'}
+                  title={chatRecording ? 'Stop recording' : chatTranscribing ? 'Transcribing' : 'Record question'}
                 >
-                  {chatRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {chatRecording ? (
+                    <MicOff className="w-4 h-4" />
+                  ) : chatTranscribing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
                 </button>
                 <input
                   type="text"
@@ -1735,7 +1759,11 @@ const Home: NextPage = () => {
                   <div className="space-y-6">
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-gray-500 uppercase">{t.model} ({llmProvider})</label>
-                      {providerModels.length > 0 ? (
+                      {llmProvider === 'opencode' ? (
+                        <div className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-gray-200">
+                          big-pickle
+                        </div>
+                      ) : providerModels.length > 0 ? (
                         <select
                           value={activeOllamaModel || ''}
                           onChange={(e) => {
