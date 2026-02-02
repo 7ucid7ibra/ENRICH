@@ -64,6 +64,10 @@ assets/*/models/models
 assets/*/models/.locks
 assets/sox/
 
+# Large icons (keep small ones if needed)
+assets/ icon2.png
+assets/icon.png
+
 # Python
 __pycache__/
 *.py[cod]
