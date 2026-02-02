@@ -55,6 +55,27 @@ temp/
 *.mp3
 *.m4a
 *.flac
+*.mp4
+
+# Assets binaries and models
+assets/*/venv/
+assets/*/models/*.onnx
+assets/*/models/models
+assets/*/models/.locks
+assets/sox/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Voice models
+*.onnx
 
 # Whisper models (optional - comment out if you want to track them)
 whisper.cpp/models/*.bin
