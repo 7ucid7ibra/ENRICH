@@ -62,6 +62,7 @@ assets/*/venv/
 assets/*/models/*.onnx
 assets/*/models/models
 assets/*/models/.locks
+assets/*/models/models--*
 assets/sox/
 
 # Large icons (keep small ones if needed)
