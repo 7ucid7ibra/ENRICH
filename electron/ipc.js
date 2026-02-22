@@ -12,7 +12,9 @@ let autoEnrich = false;
 let deepgramStreaming = false;
 let chatStreaming = false;
 let activeRecordingContext = null;
-const historyPath = path.join(app.getPath('userData'), 'everlast-history.json');
+let mainRecordingTransition = false;
+const historyPath = path.join(app.getPath('userData'), 'enrich-history.json');
+const legacyHistoryPath = path.join(app.getPath('userData'), 'everlast-history.json');
 
 function safeSend(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -25,94 +27,161 @@ function safeSend(channel, payload) {
   }
 }
 
+async function ensureMicrophoneAccess() {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+  const status = systemPreferences.getMediaAccessStatus('microphone');
+  if (status === 'granted') {
+    return;
+  }
+  const granted = await systemPreferences.askForMediaAccess('microphone');
+  if (!granted) {
+    throw new Error('Microphone access denied. Enable it in System Settings.');
+  }
+}
+
+const contextConflictError = (context) => (
+  context === 'chat'
+    ? 'Chat recording in progress. Finish chat recording first.'
+    : 'Another recording is already in progress.'
+);
+
+async function startMainRecording({ source = 'ui' } = {}) {
+  try {
+    if (!mainWindow) {
+      throw new Error('Main window not ready');
+    }
+    if (mainRecordingTransition) {
+      throw new Error('Main recording is busy. Try again.');
+    }
+    if (activeRecordingContext) {
+      throw new Error(contextConflictError(activeRecordingContext));
+    }
+    mainRecordingTransition = true;
+    await ensureMicrophoneAccess();
+    activeRecordingContext = 'main';
+
+    if (stt.activeProvider === 'deepgram') {
+      if (!stt.deepgramKey) {
+        throw new Error('Deepgram API key not configured.');
+      }
+      deepgramStreaming = true;
+      await stt.startStreaming((text) => {
+        safeSend('transcription-live', { text });
+      });
+      const started = await audioRecorder.startRecording({
+        audioType: 'raw',
+        silence: '0',
+        onData: (chunk) => stt.sendStreamingAudio(chunk)
+      });
+      if (!started) {
+        throw new Error('Unable to start recording.');
+      }
+    } else {
+      const started = await audioRecorder.startRecording();
+      if (!started) {
+        throw new Error('Unable to start recording.');
+      }
+    }
+    safeSend('recording-status', { isRecording: true });
+    return { success: true };
+  } catch (error) {
+    if (deepgramStreaming) {
+      deepgramStreaming = false;
+      try {
+        await stt.stopStreaming();
+      } catch (streamError) {
+        // ignore cleanup errors
+      }
+    }
+    if (activeRecordingContext === 'main') {
+      activeRecordingContext = null;
+    }
+    safeSend('processing-error', { error: error.message || 'Failed to start recording.' });
+    return { success: false, error: error.message };
+  } finally {
+    mainRecordingTransition = false;
+  }
+}
+
+async function stopMainRecording({ source = 'ui' } = {}) {
+  try {
+    if (!mainWindow) {
+      throw new Error('Main window not ready');
+    }
+    if (mainRecordingTransition) {
+      throw new Error('Main recording is busy. Try again.');
+    }
+    if (!activeRecordingContext) {
+      throw new Error('No recording in progress.');
+    }
+    if (activeRecordingContext !== 'main') {
+      throw new Error(contextConflictError(activeRecordingContext));
+    }
+    mainRecordingTransition = true;
+
+    const audioBuffer = await audioRecorder.stopRecording();
+    safeSend('recording-status', { isRecording: false });
+    activeRecordingContext = null;
+
+    if (stt.activeProvider === 'deepgram' && deepgramStreaming) {
+      deepgramStreaming = false;
+      const transcript = await stt.stopStreaming();
+      safeSend('transcription-raw', { text: transcript, final: !autoEnrich });
+      if (autoEnrich) {
+        safeSend('processing-status', {
+          stage: 'enriching',
+          message: 'Enriching content...'
+        });
+        const enriched = await llm.enrich(transcript);
+        safeSend('transcription-result', {
+          original: transcript,
+          enriched: enriched
+        });
+      }
+      return { success: true };
+    }
+
+    if (audioBuffer) {
+      processAudio(audioBuffer);
+    }
+    return { success: true };
+  } catch (error) {
+    if (activeRecordingContext === 'main') {
+      activeRecordingContext = null;
+    }
+    safeSend('recording-status', { isRecording: false });
+    safeSend('processing-error', { error: error.message || 'Failed to stop recording.' });
+    return { success: false, error: error.message };
+  } finally {
+    mainRecordingTransition = false;
+  }
+}
+
+async function toggleMainRecording({ source = 'ui' } = {}) {
+  if (activeRecordingContext === 'main') {
+    return stopMainRecording({ source });
+  }
+  if (activeRecordingContext === 'chat') {
+    const error = contextConflictError('chat');
+    safeSend('processing-error', { error });
+    return { success: false, error };
+  }
+  return startMainRecording({ source });
+}
+
+async function handleGlobalMainRecordingToggle() {
+  return toggleMainRecording({ source: 'hotkey' });
+}
+
 function setupIpcHandlers(window) {
   mainWindow = window;
 
   // Recording controls
-  ipcMain.handle('start-recording', async () => {
-    try {
-      if (!mainWindow) {
-        throw new Error('Main window not ready');
-      }
-      if (activeRecordingContext && activeRecordingContext !== 'main') {
-        throw new Error('Another recording is already in progress.');
-      }
-      if (process.platform === 'darwin') {
-        const status = systemPreferences.getMediaAccessStatus('microphone');
-        if (status !== 'granted') {
-          const granted = await systemPreferences.askForMediaAccess('microphone');
-          if (!granted) {
-            throw new Error('Microphone access denied. Enable it in System Settings.');
-          }
-        }
-      }
-      activeRecordingContext = 'main';
-      if (stt.activeProvider === 'deepgram') {
-        if (!stt.deepgramKey) {
-          throw new Error('Deepgram API key not configured.');
-        }
-        deepgramStreaming = true;
-        await stt.startStreaming((text) => {
-          safeSend('transcription-live', { text });
-        });
-        await audioRecorder.startRecording({
-          audioType: 'raw',
-          silence: '0',
-          onData: (chunk) => stt.sendStreamingAudio(chunk)
-        });
-      } else {
-        await audioRecorder.startRecording();
-      }
-      safeSend('recording-status', { isRecording: true });
-      return { success: true };
-    } catch (error) {
-      if (activeRecordingContext === 'main') {
-        activeRecordingContext = null;
-      }
-      return { success: false, error: error.message };
-    }
-  });
+  ipcMain.handle('start-recording', async () => startMainRecording({ source: 'ui' }));
 
-  ipcMain.handle('stop-recording', async () => {
-    try {
-      if (!mainWindow) {
-        throw new Error('Main window not ready');
-      }
-      if (activeRecordingContext && activeRecordingContext !== 'main') {
-        throw new Error('Another recording is already in progress.');
-      }
-      const audioBuffer = await audioRecorder.stopRecording();
-      safeSend('recording-status', { isRecording: false });
-      if (activeRecordingContext === 'main') {
-        activeRecordingContext = null;
-      }
-      if (stt.activeProvider === 'deepgram' && deepgramStreaming) {
-        deepgramStreaming = false;
-        const transcript = await stt.stopStreaming();
-        safeSend('transcription-raw', { text: transcript, final: !autoEnrich });
-        if (autoEnrich) {
-          safeSend('processing-status', {
-            stage: 'enriching',
-            message: 'Enriching content...'
-          });
-          const enriched = await llm.enrich(transcript);
-          safeSend('transcription-result', {
-            original: transcript,
-            enriched: enriched
-          });
-        }
-      } else if (audioBuffer) {
-        // Process audio in background
-        processAudio(audioBuffer);
-      }
-      return { success: true };
-    } catch (error) {
-      if (activeRecordingContext === 'main') {
-        activeRecordingContext = null;
-      }
-      return { success: false, error: error.message };
-    }
-  });
+  ipcMain.handle('stop-recording', async () => stopMainRecording({ source: 'ui' }));
 
   ipcMain.handle('cancel-recording', async () => {
     try {
@@ -146,17 +215,9 @@ function setupIpcHandlers(window) {
         throw new Error('Main window not ready');
       }
       if (activeRecordingContext) {
-        throw new Error('Another recording is already in progress.');
+        throw new Error(contextConflictError(activeRecordingContext));
       }
-      if (process.platform === 'darwin') {
-        const status = systemPreferences.getMediaAccessStatus('microphone');
-        if (status !== 'granted') {
-          const granted = await systemPreferences.askForMediaAccess('microphone');
-          if (!granted) {
-            throw new Error('Microphone access denied. Enable it in System Settings.');
-          }
-        }
-      }
+      await ensureMicrophoneAccess();
       activeRecordingContext = 'chat';
       if (stt.activeProvider === 'deepgram') {
         if (!stt.deepgramKey) {
@@ -166,17 +227,31 @@ function setupIpcHandlers(window) {
         await stt.startStreaming((text) => {
           safeSend('chat-transcription-live', { text });
         });
-        await audioRecorder.startRecording({
+        const started = await audioRecorder.startRecording({
           audioType: 'raw',
           silence: '0',
           onData: (chunk) => stt.sendStreamingAudio(chunk)
         });
+        if (!started) {
+          throw new Error('Unable to start chat recording.');
+        }
       } else {
-        await audioRecorder.startRecording();
+        const started = await audioRecorder.startRecording();
+        if (!started) {
+          throw new Error('Unable to start chat recording.');
+        }
       }
       safeSend('chat-recording-status', { isRecording: true });
       return { success: true };
     } catch (error) {
+      if (chatStreaming) {
+        chatStreaming = false;
+        try {
+          await stt.stopStreaming();
+        } catch (streamError) {
+          // ignore cleanup errors
+        }
+      }
       if (activeRecordingContext === 'chat') {
         activeRecordingContext = null;
       }
@@ -395,11 +470,13 @@ function setupIpcHandlers(window) {
         return { success: false, error: 'Text is required for TTS.' };
       }
       const audioPath = await tts.synthesize(text, { language });
+      const ext = path.extname(audioPath).toLowerCase();
+      const mime = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav';
       let data = null;
       if (includeData) {
         data = fs.readFileSync(audioPath).toString('base64');
       }
-      return { success: true, path: audioPath, data };
+      return { success: true, path: audioPath, mime, data };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -487,12 +564,21 @@ function setupIpcHandlers(window) {
 
   ipcMain.handle('get-history', async () => {
     try {
-      if (!fs.existsSync(historyPath)) {
+      let readPath = historyPath;
+      if (!fs.existsSync(readPath) && fs.existsSync(legacyHistoryPath)) {
+        readPath = legacyHistoryPath;
+      }
+      if (!fs.existsSync(readPath)) {
         return { success: true, history: [] };
       }
-      const raw = fs.readFileSync(historyPath, 'utf-8');
+      const raw = fs.readFileSync(readPath, 'utf-8');
       const parsed = JSON.parse(raw);
-      return { success: true, history: Array.isArray(parsed) ? parsed : [] };
+      const history = Array.isArray(parsed) ? parsed : [];
+      if (readPath !== historyPath) {
+        fs.mkdirSync(path.dirname(historyPath), { recursive: true });
+        fs.writeFileSync(historyPath, JSON.stringify(history, null, 2), 'utf-8');
+      }
+      return { success: true, history };
     } catch (error) {
       return { success: false, error: error.message, history: [] };
     }
@@ -582,4 +668,4 @@ async function processAudio(audioBuffer) {
 
 const getAutoEnrich = () => autoEnrich;
 
-module.exports = { setupIpcHandlers, getAutoEnrich };
+module.exports = { setupIpcHandlers, getAutoEnrich, handleGlobalMainRecordingToggle };

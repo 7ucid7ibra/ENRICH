@@ -273,7 +273,7 @@ class SpeechToText {
     return null;
   }
 
-  resolveFasterWhisperModelRoot() {
+  async resolveFasterWhisperModelRoot() {
     const resourcesPath = process.resourcesPath || '';
     const bundledRoot = resourcesPath ? path.join(resourcesPath, 'faster-whisper', 'models') : null;
     const devRoot = path.join(process.cwd(), 'assets', 'faster-whisper', 'models');
@@ -286,7 +286,7 @@ class SpeechToText {
     }
 
     if (userRoot && bundledRoot && fs.existsSync(bundledRoot)) {
-      this.copyDirectory(bundledRoot, userRoot);
+      await this.copyDirectoryAsync(bundledRoot, userRoot);
       if (this.directoryHasModel(userRoot)) {
         return userRoot;
       }
@@ -311,7 +311,7 @@ class SpeechToText {
     return entries.some((entry) => entry.startsWith('models--Systran--faster-whisper-'));
   }
 
-  copyDirectory(source, destination) {
+  async copyDirectoryAsync(source, destination) {
     if (!source || !destination || !fs.existsSync(source)) {
       return;
     }
@@ -319,8 +319,8 @@ class SpeechToText {
       return;
     }
     fs.mkdirSync(destination, { recursive: true });
-    if (typeof fs.cpSync === 'function') {
-      fs.cpSync(source, destination, { recursive: true });
+    if (typeof fs.promises.cp === 'function') {
+      await fs.promises.cp(source, destination, { recursive: true });
       return;
     }
     const entries = fs.readdirSync(source, { withFileTypes: true });
@@ -328,9 +328,9 @@ class SpeechToText {
       const srcPath = path.join(source, entry.name);
       const destPath = path.join(destination, entry.name);
       if (entry.isDirectory()) {
-        this.copyDirectory(srcPath, destPath);
+        await this.copyDirectoryAsync(srcPath, destPath);
       } else if (entry.isFile()) {
-        fs.copyFileSync(srcPath, destPath);
+        await fs.promises.copyFile(srcPath, destPath);
       }
     }
   }
@@ -345,7 +345,7 @@ class SpeechToText {
     const scriptPath = bundledScript && fs.existsSync(bundledScript)
       ? bundledScript
       : path.join(__dirname, 'fw_runner.py');
-    const modelRoot = process.env.WHISPER_FW_MODEL_ROOT || this.resolveFasterWhisperModelRoot();
+    const modelRoot = process.env.WHISPER_FW_MODEL_ROOT || await this.resolveFasterWhisperModelRoot();
     if (!modelRoot) {
       throw new Error('Faster-Whisper model root not found. Rebuild after running scripts/setup-faster-whisper.sh.');
     }
@@ -696,38 +696,6 @@ class SpeechToText {
     return false;
   }
 
-  // Fallback method using OpenAI Whisper API if local fails
-  async transcribeWithAPI(audioBuffer) {
-    try {
-      const FormData = require('form-data');
-      const fetch = require('node-fetch');
-      
-      const form = new FormData();
-      form.append('file', audioBuffer, {
-        filename: 'audio.wav',
-        contentType: 'audio/wav'
-      });
-      form.append('model', 'whisper-1');
-
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: form
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      return result.text;
-    } catch (error) {
-      console.error('API transcription error:', error);
-      throw error;
-    }
-  }
 }
 
 module.exports = new SpeechToText();

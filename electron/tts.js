@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
-const { spawnSync } = require('child_process');
 const fetch = require('node-fetch');
 
 const resolveBundledPiperRoot = () => {
@@ -141,16 +140,21 @@ const synthesizeElevenLabs = async (text) => {
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
-  const outputPath = path.join(outputDir, `tts_${Date.now()}.wav`);
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'audio/wav',
-      'xi-api-key': elevenLabsKey
-    },
-    body: JSON.stringify({ text })
-  });
+  const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_128';
+  const extension = outputFormat.startsWith('mp3') ? 'mp3' : 'wav';
+  const outputPath = path.join(outputDir, `tts_${Date.now()}.${extension}`);
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}?output_format=${encodeURIComponent(outputFormat)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': extension === 'mp3' ? 'audio/mpeg' : 'audio/wav',
+        'xi-api-key': elevenLabsKey
+      },
+      body: JSON.stringify({ text })
+    }
+  );
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(errorText.trim() || `ElevenLabs request failed: ${response.statusText}`);

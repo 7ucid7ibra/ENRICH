@@ -3,6 +3,13 @@ const path = require('path');
 const fetch = require('node-fetch');
 
 const DEFAULT_LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 600000);
+const DEFAULT_OPENCODE_MODEL = 'big-pickle';
+const ANTHROPIC_MODELS = new Set([
+  'minimax-m2.1-free',
+  'claude-sonnet-4',
+  'claude-3-5-haiku',
+  'claude-haiku-4-5'
+]);
 
 const fetchWithTimeout = async (url, options = {}, timeoutMs = DEFAULT_LLM_TIMEOUT_MS) => {
   const controller = new AbortController();
@@ -32,7 +39,7 @@ class LLMProcessor {
     this.presetsDir = path.join(__dirname, '../presets');
     this.activePreset = 'quick_notes';
     this.outputLanguage = (process.env.LLM_OUTPUT_LANGUAGE || 'de').toLowerCase();
-    this.opencodeModels = ['big-pickle'];
+    this.opencodeModels = [DEFAULT_OPENCODE_MODEL];
   }
 
   async initialize() {
@@ -256,7 +263,7 @@ class LLMProcessor {
       }
     ];
 
-    const model = this.activeModel || 'grok-code';
+    const model = this.activeModel || DEFAULT_OPENCODE_MODEL;
     const headers = {
       'Content-Type': 'application/json'
     };
@@ -264,16 +271,9 @@ class LLMProcessor {
       headers.Authorization = `Bearer ${process.env.OPENCODE_API_KEY}`;
     }
 
-    const anthropicModels = new Set([
-      'minimax-m2.1-free',
-      'claude-sonnet-4',
-      'claude-3-5-haiku',
-      'claude-haiku-4-5'
-    ]);
-
     let url;
     let payload;
-    if (anthropicModels.has(model)) {
+    if (ANTHROPIC_MODELS.has(model)) {
       url = 'https://opencode.ai/zen/v1/messages';
       const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content);
       const conv = messages
@@ -310,7 +310,7 @@ class LLMProcessor {
 
     const result = await response.json();
     let enrichedText = '';
-    if (anthropicModels.has(model)) {
+    if (ANTHROPIC_MODELS.has(model)) {
       const parts = result.content || [];
       enrichedText = parts.map(part => part.text || '').join('');
     } else {
@@ -324,22 +324,15 @@ class LLMProcessor {
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ];
-    const model = this.activeModel || 'grok-code';
+    const model = this.activeModel || DEFAULT_OPENCODE_MODEL;
     const headers = { 'Content-Type': 'application/json' };
     if (process.env.OPENCODE_API_KEY) {
       headers.Authorization = `Bearer ${process.env.OPENCODE_API_KEY}`;
     }
 
-    const anthropicModels = new Set([
-      'minimax-m2.1-free',
-      'claude-sonnet-4',
-      'claude-3-5-haiku',
-      'claude-haiku-4-5'
-    ]);
-
     let url;
     let payload;
-    if (anthropicModels.has(model)) {
+    if (ANTHROPIC_MODELS.has(model)) {
       url = 'https://opencode.ai/zen/v1/messages';
       payload = {
         model,
@@ -369,7 +362,7 @@ class LLMProcessor {
     }
 
     const result = await response.json();
-    if (anthropicModels.has(model)) {
+    if (ANTHROPIC_MODELS.has(model)) {
       const parts = result.content || [];
       return parts.map(part => part.text || '').join('');
     }
@@ -573,10 +566,6 @@ class LLMProcessor {
       }
 
       if (inSection && isStopHeader && !isSectionHeader) {
-        break;
-      }
-
-      if (inSection && line.trim() === '') {
         break;
       }
 

@@ -24,13 +24,26 @@ interface RecordingStatus {
 
 type Step = 'record' | 'transcribe' | 'enrich'
 type Language = 'de' | 'en'
+type ChatMessage = { role: 'user' | 'assistant'; content: string }
 type HistoryItem = {
   id: string
   createdAt: number
   transcription: string
   enriched: TranscriptionResult['enriched']
-  chat: { role: 'user' | 'assistant'; content: string }[]
+  chat: ChatMessage[]
 }
+
+const STORAGE_KEYS = {
+  onboardingHide: 'enrich_onboarding_hide',
+  autoEnrich: 'enrich_auto_enrich',
+  history: 'enrich-history'
+} as const
+
+const LEGACY_STORAGE_KEYS = {
+  onboardingHide: 'everlast_onboarding_hide',
+  autoEnrich: 'everlast_auto_enrich',
+  history: 'everlast-history'
+} as const
 
 const translations = {
   de: {
@@ -62,6 +75,7 @@ const translations = {
     stopRecord: 'Aufnahme läuft',
     transcribing: 'Transkribiere Audio...',
     enriching_progress: 'Mit KI anreichern...',
+    transcription: 'Transkription',
     info: 'Information',
     onboardingTitle: 'Willkommen',
     onboardingDontShow: 'Nicht wieder anzeigen',
@@ -209,7 +223,7 @@ const Home: NextPage = () => {
   const [copied, setCopied] = useState(false)
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null)
-  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
   const [chatRecording, setChatRecording] = useState(false)
@@ -302,7 +316,13 @@ const Home: NextPage = () => {
     if (typeof window === 'undefined') {
       return
     }
-    const shouldHide = window.localStorage.getItem('everlast_onboarding_hide') === '1'
+    const shouldHide = (
+      window.localStorage.getItem(STORAGE_KEYS.onboardingHide)
+      ?? window.localStorage.getItem(LEGACY_STORAGE_KEYS.onboardingHide)
+    ) === '1'
+    if (window.localStorage.getItem(STORAGE_KEYS.onboardingHide) == null) {
+      window.localStorage.setItem(STORAGE_KEYS.onboardingHide, shouldHide ? '1' : '0')
+    }
     setShowOnboarding(!shouldHide)
     setSkipOnboarding(shouldHide)
   }, [])
@@ -311,7 +331,13 @@ const Home: NextPage = () => {
     if (typeof window === 'undefined') {
       return
     }
-    const stored = window.localStorage.getItem('everlast_auto_enrich') === '1'
+    const stored = (
+      window.localStorage.getItem(STORAGE_KEYS.autoEnrich)
+      ?? window.localStorage.getItem(LEGACY_STORAGE_KEYS.autoEnrich)
+    ) === '1'
+    if (window.localStorage.getItem(STORAGE_KEYS.autoEnrich) == null) {
+      window.localStorage.setItem(STORAGE_KEYS.autoEnrich, stored ? '1' : '0')
+    }
     setAutoEnrich(stored)
     window.electronAPI?.setAutoEnrich(stored)
   }, [])
@@ -320,7 +346,7 @@ const Home: NextPage = () => {
     if (typeof window === 'undefined') {
       return
     }
-    window.localStorage.setItem('everlast_auto_enrich', autoEnrich ? '1' : '0')
+    window.localStorage.setItem(STORAGE_KEYS.autoEnrich, autoEnrich ? '1' : '0')
     window.electronAPI?.setAutoEnrich(autoEnrich)
   }, [autoEnrich])
 
@@ -550,8 +576,6 @@ const Home: NextPage = () => {
     window.electronAPI.onChatTranscriptionRaw(onChatTranscriptionRaw)
     window.electronAPI.onChatTranscriptionLive(onChatTranscriptionLive)
 
-    loadAvailableModels()
-
     return () => {
       if (!window.electronAPI) {
         return
@@ -585,10 +609,16 @@ const Home: NextPage = () => {
             return
           }
         }
-        const stored = window.localStorage.getItem('everlast-history')
+        const stored = (
+          window.localStorage.getItem(STORAGE_KEYS.history)
+          ?? window.localStorage.getItem(LEGACY_STORAGE_KEYS.history)
+        )
         if (stored) {
           const parsed = JSON.parse(stored)
           if (Array.isArray(parsed)) {
+            if (window.localStorage.getItem(STORAGE_KEYS.history) == null) {
+              window.localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(parsed))
+            }
             setHistoryItems(parsed)
             if (parsed[0]?.id) {
               setActiveHistoryId(parsed[0].id)
@@ -610,7 +640,7 @@ const Home: NextPage = () => {
       return
     }
     try {
-      window.localStorage.setItem('everlast-history', JSON.stringify(historyItems))
+      window.localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(historyItems))
       window.electronAPI?.saveHistory?.(historyItems)
     } catch (error) {
       console.warn('Failed to save history:', error)
@@ -749,7 +779,7 @@ const Home: NextPage = () => {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isRecording, isProcessing, rawTranscription])
+  }, [isRecording, isProcessing, rawTranscription, language])
 
   const askQuestion = async () => {
     if (!chatInput.trim()) {
@@ -763,7 +793,7 @@ const Home: NextPage = () => {
     setChatInput('')
     setChatBusy(true)
     setChatMessages((prev) => {
-      const next = [...prev, { role: 'user', content: question }]
+      const next: ChatMessage[] = [...prev, { role: 'user', content: question }]
       updateHistoryChat(next)
       return next
     })
@@ -772,9 +802,10 @@ const Home: NextPage = () => {
         transcript: rawTranscription,
         question
       })
-      if (response?.success && response.answer) {
+      if (response?.success && typeof response.answer === 'string' && response.answer.length > 0) {
+        const answer = response.answer
         setChatMessages((prev) => {
-          const next = [...prev, { role: 'assistant', content: response.answer }]
+          const next: ChatMessage[] = [...prev, { role: 'assistant', content: answer }]
           updateHistoryChat(next)
           return next
         })
@@ -813,9 +844,9 @@ const Home: NextPage = () => {
   const closeOnboarding = () => {
     if (typeof window !== 'undefined') {
       if (skipOnboarding) {
-        window.localStorage.setItem('everlast_onboarding_hide', '1')
+        window.localStorage.setItem(STORAGE_KEYS.onboardingHide, '1')
       } else {
-        window.localStorage.removeItem('everlast_onboarding_hide')
+        window.localStorage.removeItem(STORAGE_KEYS.onboardingHide)
       }
     }
     setShowOnboarding(false)
@@ -853,7 +884,7 @@ const Home: NextPage = () => {
     setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
-  const updateHistoryChat = (nextChat: { role: 'user' | 'assistant'; content: string }[]) => {
+  const updateHistoryChat = (nextChat: ChatMessage[]) => {
     if (!activeHistoryId) {
       return
     }
@@ -896,13 +927,13 @@ const Home: NextPage = () => {
 
   const handleSttProviderChange = async (provider: string) => {
     try {
-      setSttProvider(provider)
       if (!window.electronAPI?.setSTTProvider) {
         setError('STT provider control not available')
         return
       }
       const result = await window.electronAPI.setSTTProvider(provider)
       if (result?.success) {
+        setSttProvider(provider)
         await loadAvailableModels()
       } else {
         setError(result?.error || 'Failed to change STT provider')
@@ -914,13 +945,13 @@ const Home: NextPage = () => {
 
   const handleTtsProviderChange = async (provider: string) => {
     try {
-      setTtsProvider(provider)
       if (!window.electronAPI?.setTtsProvider) {
         setError('TTS provider control not available')
         return
       }
       const result = await window.electronAPI.setTtsProvider(provider)
       if (result?.success) {
+        setTtsProvider(provider)
         await loadAvailableModels()
       } else {
         setError(result?.error || 'Failed to change TTS provider')
@@ -985,8 +1016,9 @@ const Home: NextPage = () => {
         setError(response?.error || 'Failed to synthesize speech')
         return
       }
+      const mime = response.mime || (response.path.toLowerCase().endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav')
       const audioSrc = response.data
-        ? `data:audio/wav;base64,${response.data}`
+        ? `data:${mime};base64,${response.data}`
         : new URL(`file://${response.path}`).toString()
       const audio = new Audio(audioSrc)
       ttsAudioRef.current = audio
@@ -1065,6 +1097,14 @@ const Home: NextPage = () => {
                 record: t.record,
                 transcribe: t.transcribe,
                 enrich: t.enrich
+              }}
+              clickableSteps={currentStep === 'enrich' ? ['transcribe'] : []}
+              onStepClick={(step) => {
+                if (step === 'transcribe') {
+                  // History is persisted automatically, so no save-confirm modal is needed here.
+                  setCurrentStep('transcribe')
+                  setError(null)
+                }
               }}
             />
           </div>
@@ -1161,7 +1201,8 @@ const Home: NextPage = () => {
                 className={clsx(
                   "group relative overflow-hidden px-8 py-3 rounded-xl font-bold tracking-widest text-xs uppercase transition-all duration-300",
                   "bg-everlast-gold text-black hover:shadow-[0_0_30px_rgba(251,191,36,0.2)] active:scale-95",
-                  (isProcessing || !rawTranscription.trim()) && "opacity-30 cursor-not-allowed grayscale"
+                  isProcessing && "enrich-loading-pulse cursor-wait",
+                  !isProcessing && !rawTranscription.trim() && "opacity-30 cursor-not-allowed grayscale"
                 )}
               >
                 <div className="relative z-10 flex items-center gap-2">

@@ -28,7 +28,7 @@ export interface ElectronAPI {
   setElevenLabsKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setElevenLabsVoiceId: (voiceId: string) => Promise<{ success: boolean; error?: string }>
   setAutoEnrich: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
-  ttsSpeak: (payload: { text: string; language?: string; includeData?: boolean }) => Promise<{ success: boolean; path?: string; data?: string | null; error?: string }>
+  ttsSpeak: (payload: { text: string; language?: string; includeData?: boolean }) => Promise<{ success: boolean; path?: string; mime?: string; data?: string | null; error?: string }>
   setTtsVoice: (payload: { language: string; voiceId: string }) => Promise<{ success: boolean; error?: string }>
   cancelRecording: () => Promise<{ success: boolean; error?: string }>
   cancelAskQuestion: () => Promise<{ success: boolean; error?: string }>

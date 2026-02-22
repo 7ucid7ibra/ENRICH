@@ -14,7 +14,8 @@
     "build": "npm run build:frontend && npm run build:electron",
     "build:frontend": "cd frontend && npm run build",
     "build:electron": "electron-builder",
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -24,9 +25,8 @@
   },
   "dependencies": {
     "form-data": "^4.0.0",
-    "node-record-lpcm16": "^1.0.1",
     "node-fetch": "^2.6.9",
-    "openai": "^4.24.0",
+    "node-record-lpcm16": "^1.0.1",
     "ws": "^8.18.0"
   },
   "build": {

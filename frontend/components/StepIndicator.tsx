@@ -10,14 +10,16 @@ interface StepIndicatorProps {
         transcribe: string
         enrich: string
     }
+    onStepClick?: (step: 'record' | 'transcribe' | 'enrich') => void
+    clickableSteps?: Array<'record' | 'transcribe' | 'enrich'>
 }
 
-export default function StepIndicator({ currentStep, labels }: StepIndicatorProps) {
+export default function StepIndicator({ currentStep, labels, onStepClick, clickableSteps = [] }: StepIndicatorProps) {
     const steps = [
         { id: 'record', label: labels.record },
         { id: 'transcribe', label: labels.transcribe },
         { id: 'enrich', label: labels.enrich },
-    ]
+    ] as const
 
     const getCurrentIndex = () => steps.findIndex((s) => s.id === currentStep)
     const currentIndex = getCurrentIndex()
@@ -27,6 +29,7 @@ export default function StepIndicator({ currentStep, labels }: StepIndicatorProp
             {steps.map((step, index) => {
                 const isActive = index === currentIndex
                 const isCompleted = index < currentIndex
+                const isClickable = clickableSteps.includes(step.id)
 
                 return (
                     <div key={step.id} className="flex items-center gap-8">
@@ -36,7 +39,15 @@ export default function StepIndicator({ currentStep, labels }: StepIndicatorProp
                                     color: isActive ? '#fbbf24' : isCompleted ? '#ffffff' : '#4b5563',
                                     opacity: isActive || isCompleted ? 1 : 0.4
                                 }}
-                                className="text-[10px] font-bold tracking-[0.2em] uppercase transition-all"
+                                className={twMerge(clsx(
+                                    "text-[10px] font-bold tracking-[0.2em] uppercase transition-all",
+                                    isClickable && "cursor-pointer hover:opacity-100"
+                                ))}
+                                onClick={() => {
+                                    if (isClickable && onStepClick) {
+                                        onStepClick(step.id)
+                                    }
+                                }}
                             >
                                 {step.label}
                             </motion.div>

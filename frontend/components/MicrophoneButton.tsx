@@ -24,11 +24,11 @@ export default function MicrophoneButton({ isRecording, onClick, disabled, label
                 whileHover={{ scale: disabled ? 1 : 1.05 }}
                 whileTap={{ scale: disabled ? 1 : 0.95 }}
                 className={clsx(
-                    "w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all duration-500 shadow-2xl overflow-hidden",
+                    "w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all duration-500 overflow-hidden",
                     disabled ? "opacity-30 cursor-not-allowed grayscale" : "cursor-pointer",
                     isRecording
                         ? "bg-red-500 shadow-[0_0_50px_rgba(239,68,68,0.4)]"
-                        : "bg-black border border-white/5 hover:border-everlast-gold/50"
+                        : "bg-black border border-white/5 hover:shadow-[0_0_34px_rgba(251,191,36,0.22)] hover:border-everlast-gold/50"
                 )}
             >
                 {/* Background Shimmer/Glow */}

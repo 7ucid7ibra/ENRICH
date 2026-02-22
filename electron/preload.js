@@ -1,45 +1,84 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const listenerMap = new WeakMap();
+
+function addListener(channel, callback) {
+  if (typeof callback !== 'function') {
+    return () => {};
+  }
+  const wrapped = (event, data) => callback(data, event);
+  ipcRenderer.on(channel, wrapped);
+
+  let channelMap = listenerMap.get(callback);
+  if (!channelMap) {
+    channelMap = new Map();
+    listenerMap.set(callback, channelMap);
+  }
+  const wrappedSet = channelMap.get(channel) || new Set();
+  wrappedSet.add(wrapped);
+  channelMap.set(channel, wrappedSet);
+
+  return () => removeListener(channel, callback);
+}
+
+function removeListener(channel, callback) {
+  const channelMap = listenerMap.get(callback);
+  if (!channelMap) {
+    return;
+  }
+  const wrappedSet = channelMap.get(channel);
+  if (!wrappedSet) {
+    return;
+  }
+  wrappedSet.forEach((wrapped) => {
+    ipcRenderer.removeListener(channel, wrapped);
+  });
+  channelMap.delete(channel);
+  if (channelMap.size === 0) {
+    listenerMap.delete(callback);
+  }
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Recording status
   onRecordingStatus: (callback) => {
-    ipcRenderer.on('recording-status', (event, data) => callback(data));
+    return addListener('recording-status', callback);
   },
   
   // Processing status
   onProcessingStatus: (callback) => {
-    ipcRenderer.on('processing-status', (event, data) => callback(data));
+    return addListener('processing-status', callback);
   },
   
   // Transcription results
   onTranscriptionResult: (callback) => {
-    ipcRenderer.on('transcription-result', (event, data) => callback(data));
+    return addListener('transcription-result', callback);
   },
 
   // Raw transcription
   onTranscriptionRaw: (callback) => {
-    ipcRenderer.on('transcription-raw', (event, data) => callback(data));
+    return addListener('transcription-raw', callback);
   },
 
   // Live transcription
   onTranscriptionLive: (callback) => {
-    ipcRenderer.on('transcription-live', (event, data) => callback(data));
+    return addListener('transcription-live', callback);
   },
 
   // Chat transcription
   onChatRecordingStatus: (callback) => {
-    ipcRenderer.on('chat-recording-status', (event, data) => callback(data));
+    return addListener('chat-recording-status', callback);
   },
   onChatTranscriptionRaw: (callback) => {
-    ipcRenderer.on('chat-transcription-raw', (event, data) => callback(data));
+    return addListener('chat-transcription-raw', callback);
   },
   onChatTranscriptionLive: (callback) => {
-    ipcRenderer.on('chat-transcription-live', (event, data) => callback(data));
+    return addListener('chat-transcription-live', callback);
   },
   
   // Error handling
   onProcessingError: (callback) => {
-    ipcRenderer.on('processing-error', (event, data) => callback(data));
+    return addListener('processing-error', callback);
   },
   
   // Manual recording control
@@ -74,5 +113,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   enrichText: (text, outputLanguage) => ipcRenderer.invoke('enrich-text', { text, outputLanguage }),
   setUILanguage: (language) => ipcRenderer.invoke('set-ui-language', language),
   askQuestion: (payload) => ipcRenderer.invoke('ask-question', payload),
-  removeListener: (channel, callback) => ipcRenderer.removeListener(channel, callback)
+  removeListener
 });
