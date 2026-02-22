@@ -85,6 +85,9 @@ ENV/
 # Whisper models (optional - comment out if you want to track them)
 whisper.cpp/models/*.bin
 
+# Whisper.cpp build artifacts
+whisper.cpp/bindings/java/bin/
+
 # Electron
 release/
 app/dist/
