@@ -94,3 +94,9 @@ app/dist/
 
 # Jarvis assistant (reference only)
 jarvis_assistant/
+
+# Development files
+.gitattributes
+git_workflow.md
+emit_git_evidence.py
+tests/
