@@ -2,6 +2,8 @@
 
 Eine Desktop‑App, die Sprache aufnimmt, transkribiert und mit KI zu strukturierten Notizen anreichert. Entwickelt mit Electron + Next.js für einen schnellen, fokussierten Workflow.
 
+https://github.com/7ucid7ibra/ENRICH/releases/download/v0.1.0/ENRICH-demo.mp4
+
 ## Funktionen
 
 - Aufnahme per globalem Hotkey
